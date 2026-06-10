@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS proposals (
   rationale  TEXT,                          -- why the source thinks this is worth remembering
   created_at TEXT NOT NULL,
   status     TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED')),
-  memory_id  TEXT REFERENCES memories(id)   -- set when approved
+  memory_id  TEXT REFERENCES memories(id) ON DELETE SET NULL  -- set when approved
 );
 
 CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status);

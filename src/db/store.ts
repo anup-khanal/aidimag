@@ -381,8 +381,14 @@ export class MemoryStore {
   }
 
   forget(id: string): void {
-    const res = this.db.prepare("DELETE FROM memories WHERE id = ?").run(id);
-    if (res.changes === 0) throw new Error(`No memory with id ${id}`);
+    const tx = this.db.transaction(() => {
+      // clear proposal back-references (older DBs lack ON DELETE SET NULL)
+      this.db.prepare("UPDATE proposals SET memory_id = NULL WHERE memory_id = ?").run(id);
+      this.db.prepare("UPDATE memories SET superseded_by = NULL WHERE superseded_by = ?").run(id);
+      const res = this.db.prepare("DELETE FROM memories WHERE id = ?").run(id);
+      if (res.changes === 0) throw new Error(`No memory with id ${id}`);
+    });
+    tx();
   }
 
   link(fromId: string, toId: string, relation: MemoryLink["relation"]): void {
