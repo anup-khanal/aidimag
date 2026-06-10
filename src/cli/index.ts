@@ -6,7 +6,7 @@
  *   dim remember "<claim>"   store a memory
  *   dim recall <query|path>  search memories
  *   dim status               memory store summary
- *   dim verify               re-run evidence (Phase 3 — stub)
+ *   dim verify               re-run evidence, update statuses
  *   dim log                  recent memories
  *   dim forget <id>          delete a memory
  */
@@ -16,6 +16,8 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, appendFileSync } fr
 import path from "node:path";
 import { MemoryStore, findRepoRoot, dbPathFor, AIDIMAG_DIR } from "../db/store.js";
 import { mineCommits } from "../capture/commit-miner.js";
+import { verifyAll } from "../verify/engine.js";
+import { installGitHooks } from "../verify/hooks.js";
 import type { EvidenceType, MemoryEntry, MemoryKind, Proposal } from "../types.js";
 
 const program = new Command();
@@ -68,6 +70,12 @@ program
     }
     // suggest MCP wiring
     console.log(fresh ? `Initialized aidimag in ${dir}` : `aidimag already initialized in ${dir}`);
+    const hooks = installGitHooks(root);
+    if (hooks.installed.length) {
+      console.log(`Installed git hooks: ${hooks.installed.join(", ")} (re-verify on pull/checkout)`);
+    } else if (hooks.alreadyPresent.length) {
+      console.log(`Git hooks already installed: ${hooks.alreadyPresent.join(", ")}`);
+    }
     console.log(`\nAdd the MCP server to your agent config, e.g. for Claude Code (.mcp.json):`);
     console.log(
       JSON.stringify(
@@ -234,9 +242,32 @@ program
 
 program
   .command("verify")
-  .description("Re-run evidence and update memory statuses (Phase 3)")
-  .action(() => {
-    console.log("dim verify: evidence runners land in Phase 3 (STATIC_CHECK + COMMIT_REF first).");
+  .description("Re-run evidence and update memory statuses (cheap tier: STATIC_CHECK + COMMIT_REF)")
+  .option("-i, --id <ids...>", "Only verify specific memory ids (prefix ok)")
+  .option("-q, --quiet", "Only print status changes (for git hooks)")
+  .action((opts) => {
+    const root = findRepoRoot() ?? fail("not inside a repo");
+    const store = MemoryStore.open(root);
+    const report = verifyAll(store, root, { ids: opts.id });
+
+    for (const r of report.results) {
+      const changed = r.after !== r.before;
+      if (opts.quiet && !changed) continue;
+      const arrow = changed ? `${r.before} → ${r.after}` : r.after;
+      const icon = r.after === "VERIFIED" ? "✓" : r.after === "STALE" ? "~" : "?";
+      console.log(`${icon} [${arrow}] conf ${r.confidenceBefore.toFixed(2)}→${r.confidenceAfter.toFixed(2)}  ${r.claim.slice(0, 90)}`);
+      for (const o of r.outcomes) {
+        if (opts.quiet && o.result !== "FAIL") continue;
+        console.log(`    ${o.type}: ${o.result} (${o.detail})`);
+      }
+    }
+    if (!opts.quiet || report.stale > 0) {
+      console.log(
+        `\nchecked ${report.checked}: ${report.verified} verified, ${report.stale} stale, ${report.unchanged} unchanged`
+      );
+    }
+    store.close();
+    if (report.stale > 0) process.exitCode = 2; // signal staleness to scripts
   });
 
 program

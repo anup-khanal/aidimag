@@ -355,6 +355,24 @@ export class MemoryStore {
     if (res.changes === 0) throw new Error(`No memory with id ${id}`);
   }
 
+  setConfidence(id: string, confidence: number): void {
+    this.db
+      .prepare("UPDATE memories SET confidence = ? WHERE id = ?")
+      .run(Math.max(0, Math.min(1, confidence)), id);
+  }
+
+  touchVerified(id: string): void {
+    this.db
+      .prepare("UPDATE memories SET verified_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), id);
+  }
+
+  updateEvidenceResult(evidenceId: string, result: Evidence["result"], lastRun: string): void {
+    this.db
+      .prepare("UPDATE evidence SET result = ?, last_run = ? WHERE id = ?")
+      .run(result, lastRun, evidenceId);
+  }
+
   refute(id: string, supersededBy?: string): void {
     const res = this.db
       .prepare("UPDATE memories SET status = 'REFUTED', superseded_by = ? WHERE id = ?")

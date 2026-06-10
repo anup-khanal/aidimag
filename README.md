@@ -31,7 +31,7 @@ dim status
 | `dim status` | Memory store summary (incl. pending proposals) |
 | `dim mine` | Mine git history for memory candidates (`--full` to rescan all) |
 | `dim review [approve\|reject] [id\|all]` | Review the proposal queue |
-| `dim verify` | Re-run evidence, update statuses *(Phase 3)* |
+| `dim verify` | Re-run evidence, update statuses (`-q` for hooks, `-i <id>` to scope; exit 2 if anything went stale) |
 | `dim log` | Recent memories |
 | `dim forget <id>` | Delete a memory |
 | `dim mcp` | Run the MCP server (stdio) |
@@ -47,6 +47,19 @@ Nothing enters active memory without human approval:
    call `memory_propose` with falsifiable, evidence-backed claims.
 3. **Review** — `dim review` lists the queue; `approve` materializes a real memory,
    `reject` discards (dedupe prevents re-proposal of the same claim).
+
+## Verification (Phase 3 — the wedge)
+
+Memories are falsifiable claims; `dim verify` re-runs their evidence against the current repo state:
+
+- **`STATIC_CHECK`** — payload is a shell command; exit 0 means the claim holds
+- **`COMMIT_REF`** — anchor commit must exist and be an ancestor of HEAD; `sha:path1,path2` also fails if anchored files changed since
+- **`HUMAN_ATTESTED`** — taken as-is (decay comes in Phase 5)
+- **`TEST_RESULT` / `EXEC_TRACE`** — expensive tier, skipped until Phase 5
+
+Lifecycle: any evidence FAILs → memory flips to **STALE** (confidence floored to 0.20); all evidence PASSes → **VERIFIED** (confidence +0.10, capped 0.95). A recovered memory re-earns trust gradually. **REFUTED** is never automatic — it stays a deliberate human/agent action.
+
+`dim init` installs `post-merge` / `post-checkout` / `post-rewrite` git hooks (additive, never clobbers existing hooks) so re-verification runs on every pull, branch switch, and rebase.
 
 ## MCP server
 
@@ -64,7 +77,7 @@ Add to your agent config (e.g. `.mcp.json` for Claude Code):
 }
 ```
 
-**Tools**: `memory_search`, `memory_get_for_files`, `memory_write`, `memory_propose`, `memory_refute`, `memory_status`, `proposals_pending`
+**Tools**: `memory_search`, `memory_get_for_files`, `memory_write`, `memory_propose`, `memory_verify`, `memory_refute`, `memory_status`, `proposals_pending`
 **Prompt**: `session_end_extraction` — run at session end to capture durable learnings
 **Resource**: `aidimag://digest` — repo memory digest for session bootstrapping
 
@@ -72,5 +85,6 @@ Add to your agent config (e.g. `.mcp.json` for Claude Code):
 
 Phase 1 (skeleton) ✅ — MCP server, SQLite + FTS5 store, `dim` CLI.
 Phase 2 (capture) ✅ — commit miner, session-end extraction prompt, proposal queue with human review.
-Next: Phase 3 — evidence runners (STATIC_CHECK + COMMIT_REF) + git-hook re-verification.
+Phase 3 (verification v1) ✅ — STATIC_CHECK + COMMIT_REF runners, status lifecycle, git-hook re-verification.
+Next: Phase 4 — pilot on a real repo, tune retrieval ranking.
 

@@ -10,8 +10,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { MemoryStore } from "../db/store.js";
+import { MemoryStore, findRepoRoot } from "../db/store.js";
 import { SESSION_END_PROMPT, proposalSummaryLine } from "../capture/session-extraction.js";
+import { verifyAll } from "../verify/engine.js";
 import type { MemoryEntry } from "../types.js";
 
 const KINDS = [
@@ -149,6 +150,27 @@ async function main() {
         `by status: ${Object.entries(s.byStatus).map(([k, v]) => `${k}=${v}`).join(", ")}`,
         `by kind: ${Object.entries(s.byKind).map(([k, v]) => `${k}=${v}`).join(", ") || "(none)"}`,
         `pending proposals: ${s.pendingProposals ?? 0}`,
+      ];
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  server.tool(
+    "memory_verify",
+    "Re-run cheap evidence checks (STATIC_CHECK, COMMIT_REF) and update memory statuses. Use before relying on VERIFIED memories if the repo may have changed, or to verify specific memories by id.",
+    {
+      ids: z.array(z.string()).optional().describe("Specific memory ids to verify (prefix ok); omit for all"),
+    },
+    async (args) => {
+      const root = process.env.AIDIMAG_REPO ?? findRepoRoot() ?? process.cwd();
+      const report = verifyAll(store, root, { ids: args.ids });
+      const changes = report.results.filter((r) => r.after !== r.before);
+      const lines = [
+        `checked ${report.checked}: ${report.verified} verified, ${report.stale} stale, ${report.unchanged} unchanged`,
+        ...changes.map(
+          (r) =>
+            `${r.before} → ${r.after} (conf ${r.confidenceBefore.toFixed(2)}→${r.confidenceAfter.toFixed(2)}): ${r.claim}`
+        ),
       ];
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }

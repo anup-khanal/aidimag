@@ -10,6 +10,7 @@ const msgs = [
   { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "memory_propose", arguments: { kind: "TODO_CONTEXT", claim: "Phase 3 verify command is a stub; evidence runners for STATIC_CHECK and COMMIT_REF are next", agent_id: "copilot", rationale: "session-end test" } } },
   { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "proposals_pending", arguments: {} } },
   { jsonrpc: "2.0", id: 5, method: "prompts/list" },
+  { jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "memory_verify", arguments: {} } },
 ];
 for (const m of msgs) server.stdin.write(JSON.stringify(m) + "\n");
 
@@ -27,8 +28,9 @@ server.stdout.on("data", (d) => {
     if (m.id === 3) console.log("PROPOSE:", m.result.content[0].text.split("\n")[0]);
     if (m.id === 4) console.log("PENDING:\n" + m.result.content[0].text);
     if (m.id === 5) console.log("PROMPTS:", m.result.prompts.map((p) => p.name).join(", "));
+    if (m.id === 6) console.log("VERIFY:", m.result.content[0].text.split("\n")[0]);
     if (m.id >= 2) done++;
-    if (done === 4) { server.kill(); process.exit(0); }
+    if (done === 5) { server.kill(); process.exit(0); }
   }
 });
 setTimeout(() => { console.error("timeout"); server.kill(); process.exit(1); }, 10000);
