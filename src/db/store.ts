@@ -171,6 +171,12 @@ export class MemoryStore {
     }
 
     const where = conditions.length ? `AND ${conditions.join(" AND ")}` : "";
+    // Status-aware ranking (Phase 4 pilot tuning): trust dominates relevance.
+    // FTS bm25 rank is negative (more relevant = more negative), so we add a
+    // status penalty: VERIFIED +0, UNVERIFIED +2, STALE +10 — a stale memory
+    // only surfaces when nothing trustworthy matches.
+    const statusPenalty =
+      "(CASE m.status WHEN 'VERIFIED' THEN 0 WHEN 'UNVERIFIED' THEN 2 WHEN 'STALE' THEN 10 ELSE 20 END)";
     let rows: MemoryRow[];
     if (ftsQuery) {
       rows = this.db
@@ -178,7 +184,7 @@ export class MemoryStore {
           `SELECT m.* FROM memories_fts f
            JOIN memories m ON m.rowid = f.rowid
            WHERE memories_fts MATCH ? ${where}
-           ORDER BY rank, m.confidence DESC
+           ORDER BY (rank + ${statusPenalty}) ASC, m.confidence DESC
            LIMIT ?`
         )
         .all(ftsQuery, ...params, limit) as MemoryRow[];
@@ -186,7 +192,7 @@ export class MemoryStore {
       rows = this.db
         .prepare(
           `SELECT m.* FROM memories m WHERE 1=1 ${where}
-           ORDER BY m.confidence DESC, m.created_at DESC LIMIT ?`
+           ORDER BY ${statusPenalty} ASC, m.confidence DESC, m.created_at DESC LIMIT ?`
         )
         .all(...params, limit) as MemoryRow[];
     }
