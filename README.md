@@ -28,11 +28,25 @@ dim status
 | `dim init` | Initialize `.aidimag/` in the current repo |
 | `dim remember "<claim>"` | Store a memory (`-k` kind, `-p` paths, `-e TYPE:payload` evidence) |
 | `dim recall <query>` | Search memories (`-p` to scope to files) |
-| `dim status` | Memory store summary |
+| `dim status` | Memory store summary (incl. pending proposals) |
+| `dim mine` | Mine git history for memory candidates (`--full` to rescan all) |
+| `dim review [approve\|reject] [id\|all]` | Review the proposal queue |
 | `dim verify` | Re-run evidence, update statuses *(Phase 3)* |
 | `dim log` | Recent memories |
 | `dim forget <id>` | Delete a memory |
 | `dim mcp` | Run the MCP server (stdio) |
+
+## Capture pipeline (Phase 2)
+
+Nothing enters active memory without human approval:
+
+1. **Commit miner** — `dim mine` scans git history (incrementally, cursor-tracked) for
+   decision/gotcha/failed-approach signals in commit messages, anchors each candidate with
+   `COMMIT_REF` evidence, and queues it as a proposal.
+2. **Session-end extraction** — agents invoke the `session_end_extraction` MCP prompt and
+   call `memory_propose` with falsifiable, evidence-backed claims.
+3. **Review** — `dim review` lists the queue; `approve` materializes a real memory,
+   `reject` discards (dedupe prevents re-proposal of the same claim).
 
 ## MCP server
 
@@ -50,11 +64,13 @@ Add to your agent config (e.g. `.mcp.json` for Claude Code):
 }
 ```
 
-**Tools**: `memory_search`, `memory_get_for_files`, `memory_write`, `memory_refute`, `memory_status`
+**Tools**: `memory_search`, `memory_get_for_files`, `memory_write`, `memory_propose`, `memory_refute`, `memory_status`, `proposals_pending`
+**Prompt**: `session_end_extraction` — run at session end to capture durable learnings
 **Resource**: `aidimag://digest` — repo memory digest for session bootstrapping
 
 ## Status
 
 Phase 1 (skeleton) ✅ — MCP server, SQLite + FTS5 store, `dim` CLI.
-Next: capture pipeline (Phase 2), evidence runners + git-hook re-verification (Phase 3).
+Phase 2 (capture) ✅ — commit miner, session-end extraction prompt, proposal queue with human review.
+Next: Phase 3 — evidence runners (STATIC_CHECK + COMMIT_REF) + git-hook re-verification.
 

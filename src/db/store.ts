@@ -252,7 +252,9 @@ export class MemoryStore {
           JSON.stringify(input.symbols ?? []),
           JSON.stringify(input.evidence ?? []),
           input.source,
-          input.sourceRef ?? null,
+          // NOTE: empty string, not NULL — SQLite treats NULLs as distinct in
+          // unique indexes, which would break (source, source_ref, claim) dedupe.
+          input.sourceRef ?? "",
           input.rationale ?? null,
           now
         );
@@ -335,7 +337,7 @@ export class MemoryStore {
       symbols: JSON.parse(row.symbols as string),
       evidence: JSON.parse(row.evidence as string),
       source: row.source as string,
-      sourceRef: (row.source_ref as string | null) ?? undefined,
+      sourceRef: (row.source_ref as string | null) || undefined,
       rationale: (row.rationale as string | null) ?? undefined,
       createdAt: row.created_at as string,
       status: row.status as ProposalStatus,
