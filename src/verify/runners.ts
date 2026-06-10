@@ -1,9 +1,9 @@
 /**
- * Evidence runners (Phase 3 — Verification v1).
+ * Evidence runners.
  *
- * Cheap tier only: STATIC_CHECK and COMMIT_REF run on every `git pull`.
- * Expensive tier (TEST_RESULT, EXEC_TRACE) lands in Phase 5 and is reported
- * as SKIPPED here so it never blocks fast verification.
+ * Cheap tier (STATIC_CHECK, COMMIT_REF) runs on every `git pull` via hooks.
+ * Expensive tier (TEST_RESULT, EXEC_TRACE) runs only with deep=true
+ * (`dim verify --deep`) so hook-triggered verification stays fast.
  */
 
 import { execFileSync, execSync } from "node:child_process";
@@ -17,6 +17,7 @@ export interface RunOutcome {
 }
 
 const STATIC_CHECK_TIMEOUT_MS = 15_000;
+const DEEP_TIMEOUT_MS = 120_000; // TEST_RESULT / EXEC_TRACE
 
 /** STATIC_CHECK: payload is a shell command; exit 0 = claim holds. */
 function runStaticCheck(ev: Evidence, repoRoot: string): RunOutcome {
@@ -101,18 +102,85 @@ function runCommitRef(ev: Evidence, repoRoot: string): RunOutcome {
   return { evidenceId: ev.id, type: ev.type, result: "PASS", detail: `${sha.slice(0, 8)} reachable from HEAD` };
 }
 
-export function runEvidence(ev: Evidence, repoRoot: string): RunOutcome {
+/**
+ * TEST_RESULT: payload is a test command (e.g. "npm test -- --run auth").
+ * Expensive tier — only runs when deep=true. Exit 0 = the claim holds.
+ */
+function runTestResult(ev: Evidence, repoRoot: string): RunOutcome {
+  try {
+    execSync(ev.payload, {
+      cwd: repoRoot,
+      timeout: DEEP_TIMEOUT_MS,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, CI: "1" }, // non-interactive, no watch mode
+    });
+    return { evidenceId: ev.id, type: ev.type, result: "PASS", detail: "test command exit 0" };
+  } catch (err) {
+    const e = err as { status?: number; killed?: boolean };
+    if (e.killed) {
+      return { evidenceId: ev.id, type: ev.type, result: "UNKNOWN", detail: `timed out after ${DEEP_TIMEOUT_MS}ms` };
+    }
+    return { evidenceId: ev.id, type: ev.type, result: "FAIL", detail: `test command exit ${e.status ?? "?"}` };
+  }
+}
+
+/**
+ * EXEC_TRACE: payload is "command :: expected-output-regex".
+ * Runs the command and matches stdout against the regex — the claim holds iff
+ * the observed behavior matches. Without " :: ", exit 0 = PASS.
+ * Sandboxing note: v1 confines execution to the repo root with a hard timeout;
+ * container/VM isolation is a later hardening step.
+ */
+function runExecTrace(ev: Evidence, repoRoot: string): RunOutcome {
+  const sep = " :: ";
+  const idx = ev.payload.indexOf(sep);
+  const cmd = idx >= 0 ? ev.payload.slice(0, idx) : ev.payload;
+  const expect = idx >= 0 ? ev.payload.slice(idx + sep.length) : null;
+  try {
+    const stdout = execSync(cmd, {
+      cwd: repoRoot,
+      timeout: DEEP_TIMEOUT_MS,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (expect === null) {
+      return { evidenceId: ev.id, type: ev.type, result: "PASS", detail: "exec exit 0" };
+    }
+    const re = new RegExp(expect, "m");
+    return re.test(stdout)
+      ? { evidenceId: ev.id, type: ev.type, result: "PASS", detail: `output matched /${expect}/` }
+      : { evidenceId: ev.id, type: ev.type, result: "FAIL", detail: `output did not match /${expect}/` };
+  } catch (err) {
+    const e = err as { status?: number; killed?: boolean };
+    if (e.killed) {
+      return { evidenceId: ev.id, type: ev.type, result: "UNKNOWN", detail: `timed out after ${DEEP_TIMEOUT_MS}ms` };
+    }
+    return { evidenceId: ev.id, type: ev.type, result: "FAIL", detail: `exec exit ${e.status ?? "?"}` };
+  }
+}
+
+export interface RunOptions {
+  /** Run the expensive tier (TEST_RESULT, EXEC_TRACE). Default false — cheap tier only. */
+  deep?: boolean;
+}
+
+export function runEvidence(ev: Evidence, repoRoot: string, opts: RunOptions = {}): RunOutcome {
   switch (ev.type) {
     case "STATIC_CHECK":
       return runStaticCheck(ev, repoRoot);
     case "COMMIT_REF":
       return runCommitRef(ev, repoRoot);
     case "HUMAN_ATTESTED":
-      // human word is taken as-is; decay handles aging (Phase 5)
+      // human word is taken as-is; confidence decay handles its aging
       return { evidenceId: ev.id, type: ev.type, result: "PASS", detail: "human attested" };
     case "TEST_RESULT":
+      return opts.deep
+        ? runTestResult(ev, repoRoot)
+        : { evidenceId: ev.id, type: ev.type, result: "SKIPPED", detail: "expensive tier — use --deep" };
     case "EXEC_TRACE":
-      return { evidenceId: ev.id, type: ev.type, result: "SKIPPED", detail: "expensive tier (Phase 5)" };
+      return opts.deep
+        ? runExecTrace(ev, repoRoot)
+        : { evidenceId: ev.id, type: ev.type, result: "SKIPPED", detail: "expensive tier — use --deep" };
   }
 }
 

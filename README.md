@@ -31,7 +31,7 @@ dim status
 | `dim status` | Memory store summary (incl. pending proposals) |
 | `dim mine` | Mine git history for memory candidates (`--full` to rescan all) |
 | `dim review [approve\|reject] [id\|all]` | Review the proposal queue |
-| `dim verify` | Re-run evidence, update statuses (`-q` for hooks, `-i <id>` to scope; exit 2 if anything went stale) |
+| `dim verify` | Re-run evidence, update statuses (`--deep` for tests/exec, `-q` for hooks, `-i <id>` to scope; exit 2 if anything went stale) |
 | `dim log` | Recent memories |
 | `dim forget <id>` | Delete a memory |
 | `dim mcp` | Run the MCP server (stdio) |
@@ -48,18 +48,21 @@ Nothing enters active memory without human approval:
 3. **Review** — `dim review` lists the queue; `approve` materializes a real memory,
    `reject` discards (dedupe prevents re-proposal of the same claim).
 
-## Verification (Phase 3 — the wedge)
+## Verification (the wedge)
 
 Memories are falsifiable claims; `dim verify` re-runs their evidence against the current repo state:
 
-- **`STATIC_CHECK`** — payload is a shell command; exit 0 means the claim holds
-- **`COMMIT_REF`** — anchor commit must exist and be an ancestor of HEAD; `sha:path1,path2` also fails if anchored files changed since
-- **`HUMAN_ATTESTED`** — taken as-is (decay comes in Phase 5)
-- **`TEST_RESULT` / `EXEC_TRACE`** — expensive tier, skipped until Phase 5
+- **`STATIC_CHECK`** — payload is a shell command; exit 0 means the claim holds *(cheap tier)*
+- **`COMMIT_REF`** — anchor commit must exist and be an ancestor of HEAD; `sha:path1,path2` also fails if anchored files changed since *(cheap tier)*
+- **`TEST_RESULT`** — payload is a test command, run with `CI=1`; exit 0 = PASS *(deep tier: `--deep`)*
+- **`EXEC_TRACE`** — payload is `command :: expected-output-regex`; the claim holds iff observed output matches *(deep tier: `--deep`)*
+- **`HUMAN_ATTESTED`** — verifies once on attestation, then decays fastest (14-day half-life)
 
-Lifecycle: any evidence FAILs → memory flips to **STALE** (confidence floored to 0.20); all evidence PASSes → **VERIFIED** (confidence +0.10, capped 0.95). A recovered memory re-earns trust gradually. **REFUTED** is never automatic — it stays a deliberate human/agent action.
+**Lifecycle**: any evidence FAILs → **STALE** (confidence floored to 0.20); all evidence PASSes → **VERIFIED** (confidence +0.10, capped 0.95). A recovered memory re-earns trust gradually. **REFUTED** is never automatic — it stays a deliberate human/agent action.
 
-`dim init` installs `post-merge` / `post-checkout` / `post-rewrite` git hooks (additive, never clobbers existing hooks) so re-verification runs on every pull, branch switch, and rebase.
+**Confidence decay**: memories that can't be machine-re-verified decay exponentially (45-day half-life; 14 days for human-attested). A VERIFIED memory whose confidence decays below 0.35 is demoted to UNVERIFIED — trust expires without re-confirmation.
+
+`dim init` installs `post-merge` / `post-checkout` / `post-rewrite` git hooks (additive, never clobbers existing hooks) so cheap-tier re-verification runs on every pull, branch switch, and rebase. Run `dim verify --deep` on a schedule (or in CI) for the expensive tier.
 
 ## MCP server
 
@@ -86,5 +89,7 @@ Add to your agent config (e.g. `.mcp.json` for Claude Code):
 Phase 1 (skeleton) ✅ — MCP server, SQLite + FTS5 store, `dim` CLI.
 Phase 2 (capture) ✅ — commit miner, session-end extraction prompt, proposal queue with human review.
 Phase 3 (verification v1) ✅ — STATIC_CHECK + COMMIT_REF runners, status lifecycle, git-hook re-verification.
-Next: Phase 4 — pilot on a real repo, tune retrieval ranking.
+Phase 4 (pilot) ✅ — piloted on a real repo; status-aware retrieval ranking (see PILOT.md).
+Phase 5 (verification v2) ✅ — TEST_RESULT + EXEC_TRACE deep tier, confidence decay with auto-demotion.
+Next: Phase 6 — team mode (shared store sync, contradiction resolution); npm publish.
 

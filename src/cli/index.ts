@@ -242,20 +242,22 @@ program
 
 program
   .command("verify")
-  .description("Re-run evidence and update memory statuses (cheap tier: STATIC_CHECK + COMMIT_REF)")
+  .description("Re-run evidence and update memory statuses (cheap tier; --deep adds tests/exec)")
   .option("-i, --id <ids...>", "Only verify specific memory ids (prefix ok)")
+  .option("-d, --deep", "Also run expensive evidence (TEST_RESULT, EXEC_TRACE)")
   .option("-q, --quiet", "Only print status changes (for git hooks)")
   .action((opts) => {
     const root = findRepoRoot() ?? fail("not inside a repo");
     const store = MemoryStore.open(root);
-    const report = verifyAll(store, root, { ids: opts.id });
+    const report = verifyAll(store, root, { ids: opts.id, deep: Boolean(opts.deep) });
 
     for (const r of report.results) {
-      const changed = r.after !== r.before;
+      const changed = r.after !== r.before || r.decayed;
       if (opts.quiet && !changed) continue;
-      const arrow = changed ? `${r.before} → ${r.after}` : r.after;
+      const arrow = r.after !== r.before ? `${r.before} → ${r.after}` : r.after;
       const icon = r.after === "VERIFIED" ? "✓" : r.after === "STALE" ? "~" : "?";
-      console.log(`${icon} [${arrow}] conf ${r.confidenceBefore.toFixed(2)}→${r.confidenceAfter.toFixed(2)}  ${r.claim.slice(0, 90)}`);
+      const decayNote = r.decayed ? " (decayed)" : "";
+      console.log(`${icon} [${arrow}] conf ${r.confidenceBefore.toFixed(2)}→${r.confidenceAfter.toFixed(2)}${decayNote}  ${r.claim.slice(0, 90)}`);
       for (const o of r.outcomes) {
         if (opts.quiet && o.result !== "FAIL") continue;
         console.log(`    ${o.type}: ${o.result} (${o.detail})`);
@@ -263,7 +265,7 @@ program
     }
     if (!opts.quiet || report.stale > 0) {
       console.log(
-        `\nchecked ${report.checked}: ${report.verified} verified, ${report.stale} stale, ${report.unchanged} unchanged`
+        `\nchecked ${report.checked}: ${report.verified} verified, ${report.stale} stale, ${report.decayed} decayed, ${report.unchanged} unchanged`
       );
     }
     store.close();

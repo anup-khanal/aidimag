@@ -160,16 +160,17 @@ async function main() {
     "Re-run cheap evidence checks (STATIC_CHECK, COMMIT_REF) and update memory statuses. Use before relying on VERIFIED memories if the repo may have changed, or to verify specific memories by id.",
     {
       ids: z.array(z.string()).optional().describe("Specific memory ids to verify (prefix ok); omit for all"),
+      deep: z.boolean().optional().describe("Also run expensive evidence (TEST_RESULT, EXEC_TRACE). Slower; use when cheap checks aren't enough."),
     },
     async (args) => {
       const root = process.env.AIDIMAG_REPO ?? findRepoRoot() ?? process.cwd();
-      const report = verifyAll(store, root, { ids: args.ids });
-      const changes = report.results.filter((r) => r.after !== r.before);
+      const report = verifyAll(store, root, { ids: args.ids, deep: args.deep });
+      const changes = report.results.filter((r) => r.after !== r.before || r.decayed);
       const lines = [
-        `checked ${report.checked}: ${report.verified} verified, ${report.stale} stale, ${report.unchanged} unchanged`,
+        `checked ${report.checked}: ${report.verified} verified, ${report.stale} stale, ${report.decayed} decayed, ${report.unchanged} unchanged`,
         ...changes.map(
           (r) =>
-            `${r.before} → ${r.after} (conf ${r.confidenceBefore.toFixed(2)}→${r.confidenceAfter.toFixed(2)}): ${r.claim}`
+            `${r.before} → ${r.after}${r.decayed ? " (decayed)" : ""} (conf ${r.confidenceBefore.toFixed(2)}→${r.confidenceAfter.toFixed(2)}): ${r.claim}`
         ),
       ];
       return { content: [{ type: "text", text: lines.join("\n") }] };
