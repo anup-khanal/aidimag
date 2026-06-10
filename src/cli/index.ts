@@ -283,6 +283,20 @@ program
   });
 
 program
+  .command("refute")
+  .description("Mark a memory REFUTED (kept as negative knowledge, unlike forget)")
+  .argument("<id>", "Memory id (full or 8-char prefix)")
+  .option("-s, --superseded-by <id>", "Id of a newer memory replacing it")
+  .action((id: string, opts) => {
+    const store = MemoryStore.open();
+    const match = store.list(1000).find((m) => m.id === id || m.id.startsWith(id));
+    if (!match) fail(`no memory matching id '${id}'`);
+    store.refute(match.id, opts.supersededBy);
+    console.log(`✗ refuted ${match.id.slice(0, 8)}: "${match.claim}"`);
+    store.close();
+  });
+
+program
   .command("forget")
   .description("Delete a memory permanently (prefer refuting via agents)")
   .argument("<id>", "Memory id (full or 8-char prefix)")
