@@ -16,6 +16,8 @@ const http = require("http");
 
 let uiProcess = null;
 let statusItem = null;
+let syncStatusItem = null;
+let lastSync = null; // { when: Date, summary: string, ok: boolean }
 
 function cfg() {
   const c = vscode.workspace.getConfiguration("aidimag");
@@ -123,12 +125,56 @@ async function verify() {
 async function sync() {
   const root = repoRoot();
   if (!root) return;
+  syncStatusItem.text = "☁ syncing…";
   try {
     const { stdout } = await runDim(["sync"], root);
+    lastSync = { when: new Date(), summary: stdout.trim(), ok: true };
     vscode.window.setStatusBarMessage(`aidimag: ${stdout.trim()}`, 6000);
     refreshStatusBar();
   } catch (err) {
+    lastSync = { when: new Date(), summary: err.message, ok: false };
     vscode.window.showErrorMessage(`aidimag sync: ${err.message}`);
+  }
+  refreshSyncStatus();
+}
+
+async function refreshSyncStatus() {
+  const root = repoRoot();
+  if (!root || !syncStatusItem) return;
+  try {
+    const { stdout } = await runDim(["cloud", "status"], root);
+    if (/Not cloud-linked/i.test(stdout)) {
+      syncStatusItem.text = "☁ not linked";
+      syncStatusItem.tooltip = "aidimag: no team sync configured — click to open the dashboard (☁ Cloud) and link a server";
+      syncStatusItem.command = "aidimag.openDashboard";
+      syncStatusItem.backgroundColor = undefined;
+      syncStatusItem.show();
+      return;
+    }
+    const brain = (stdout.match(/brain:\s*(\S+)/) || [])[1] || "?";
+    const tokenMissing = /token:\s*MISSING/.test(stdout);
+    const lastTxt = lastSync
+      ? `\nLast sync ${lastSync.when.toLocaleTimeString()}: ${lastSync.summary}`
+      : "\nNot synced this session";
+    if (tokenMissing) {
+      syncStatusItem.text = `☁ ${brain} ⚠`;
+      syncStatusItem.tooltip = `aidimag: linked to brain '${brain}' but NO TOKEN stored — click to open the dashboard and add one${lastTxt}`;
+      syncStatusItem.command = "aidimag.openDashboard";
+      syncStatusItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+    } else if (lastSync && !lastSync.ok) {
+      syncStatusItem.text = `☁ ${brain} ✗`;
+      syncStatusItem.tooltip = `aidimag: last sync FAILED — click to retry${lastTxt}`;
+      syncStatusItem.command = "aidimag.sync";
+      syncStatusItem.backgroundColor = new vscode.ThemeColor("statusBarItem.errorBackground");
+    } else {
+      syncStatusItem.text = lastSync ? `☁ ${brain} ✓` : `☁ ${brain}`;
+      syncStatusItem.tooltip = `aidimag: team brain '${brain}' — click to sync now${lastTxt}`;
+      syncStatusItem.command = "aidimag.sync";
+      syncStatusItem.backgroundColor = undefined;
+    }
+    syncStatusItem.show();
+  } catch {
+    syncStatusItem.hide(); // dim CLI not reachable — memory item already signals that
   }
 }
 
@@ -156,17 +202,29 @@ async function refreshStatusBar() {
 function activate(context) {
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   statusItem.command = "aidimag.openDashboard";
+  syncStatusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("aidimag.openDashboard", openDashboard),
     vscode.commands.registerCommand("aidimag.verify", verify),
     vscode.commands.registerCommand("aidimag.sync", sync),
-    statusItem
+    statusItem,
+    syncStatusItem
   );
 
   refreshStatusBar();
+  refreshSyncStatus();
   // re-check after git operations are likely (window focus)
-  vscode.window.onDidChangeWindowState((s) => s.focused && refreshStatusBar(), null, context.subscriptions);
+  vscode.window.onDidChangeWindowState(
+    (s) => {
+      if (s.focused) {
+        refreshStatusBar();
+        refreshSyncStatus();
+      }
+    },
+    null,
+    context.subscriptions
+  );
 }
 
 function deactivate() {

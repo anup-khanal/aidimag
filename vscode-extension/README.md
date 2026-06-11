@@ -7,6 +7,13 @@ in the status bar.
 
 - **🧠 status bar item** — live counts (`12✓ 1? 0~`); turns warning-colored when
   any memory is STALE. Click → dashboard.
+- **☁ sync status item** — team-sync state at a glance:
+  - `☁ not linked` → click opens the dashboard's Cloud dialog
+  - `☁ mybrain` → linked; click syncs now
+  - `☁ mybrain ✓` → synced this session (tooltip shows last result + time)
+  - `☁ mybrain ⚠` (warning color) → linked but no token stored
+  - `☁ mybrain ✗` (error color) → last sync failed; click retries
+  Refreshes on window focus and after every sync.
 - **aidimag: Open Dashboard** — full dashboard (memory list, review queue, verify
   buttons, force-directed memory graph) in a webview panel. Starts `dim ui`
   automatically if it isn't running.
