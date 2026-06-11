@@ -504,6 +504,7 @@ export class MemoryStore {
   }
 
   // ---------------------------------------------------------------- sync (Phase 6)
+  // State-based LWW sync support consumed by src/sync/client.ts.
 
   /** Local changes since `sinceIso` (null = everything), for pushing to a sync server. */
   changedSince(sinceIso: string | null): {
