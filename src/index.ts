@@ -5,4 +5,6 @@ export { SESSION_END_PROMPT, proposalSummaryLine } from "./capture/session-extra
 export { verifyAll, verifyMemory, decayedConfidence } from "./verify/engine.js";
 export { runEvidence } from "./verify/runners.js";
 export { installGitHooks } from "./verify/hooks.js";
+export { getEmbeddingProvider } from "./embeddings/provider.js";
+export { hybridSearch, indexMemory, reindexAll } from "./embeddings/search.js";
 

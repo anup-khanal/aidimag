@@ -27,7 +27,8 @@ dim status
 | --- | --- |
 | `dim init` | Initialize `.aidimag/` in the current repo |
 | `dim remember "<claim>"` | Store a memory (`-k` kind, `-p` paths, `-e TYPE:payload` evidence) |
-| `dim recall <query>` | Search memories (`-p` to scope to files) |
+| `dim recall <query>` | Search memories — hybrid keyword + semantic (`-p` to scope to files) |
+| `dim reindex` | Build/refresh semantic embeddings for all memories |
 | `dim status` | Memory store summary (incl. pending proposals) |
 | `dim mine` | Mine git history for memory candidates (`--full` to rescan all) |
 | `dim review [approve\|reject] [id\|all]` | Review the proposal queue |
@@ -65,6 +66,22 @@ Memories are falsifiable claims; `dim verify` re-runs their evidence against the
 
 `dim init` installs `post-merge` / `post-checkout` / `post-rewrite` git hooks (additive, never clobbers existing hooks) so cheap-tier re-verification runs on every pull, branch switch, and rebase. Run `dim verify --deep` on a schedule (or in CI) for the expensive tier.
 
+## Semantic recall (optional, zero-config)
+
+`dim recall` and the MCP `memory_search` tool run **hybrid retrieval**: FTS5 keyword
+match + vector KNN (sqlite-vec), fused with reciprocal-rank fusion, then trust-ranked
+(VERIFIED > UNVERIFIED > STALE). Embedding provider auto-detection:
+
+| `AIDIMAG_EMBEDDINGS` | Behavior |
+|---|---|
+| `auto` *(default)* | OpenAI if `OPENAI_API_KEY` set → else local Ollama if running → else keyword-only |
+| `openai` / `ollama` | Force a provider (`AIDIMAG_OPENAI_MODEL`, `AIDIMAG_OLLAMA_MODEL`, `AIDIMAG_OLLAMA_URL` to customize) |
+| `off` | Keyword-only |
+
+New memories are embedded on write; run `dim reindex` once to backfill (or after
+switching models). Without any provider, everything still works — searches are just
+literal-keyword only.
+
 ## MCP server
 
 Add to your agent config (e.g. `.mcp.json` for Claude Code):
@@ -93,5 +110,6 @@ Phase 3 (verification v1) ✅ — STATIC_CHECK + COMMIT_REF runners, status life
 Phase 4 (pilot) ✅ — piloted on a real repo; status-aware retrieval ranking (see PILOT.md).
 Phase 5 (verification v2) ✅ — TEST_RESULT + EXEC_TRACE deep tier, confidence decay with auto-demotion.
 Web dashboard ✅ — `dim ui`: memory browser, proposal review, verify buttons, force-directed memory graph.
-Next: Phase 6 — team mode (shared store sync, contradiction resolution); npm publish; IDE extensions (can embed the dashboard in a webview).
+Semantic recall ✅ — hybrid FTS + sqlite-vec KNN with pluggable embeddings (OpenAI/Ollama, auto-detected).
+Next: Phase 6 — team mode (see CLOUD_DESIGN.md); npm publish; IDE extensions (can embed the dashboard in a webview).
 

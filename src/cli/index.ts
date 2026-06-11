@@ -19,6 +19,7 @@ import { MemoryStore, findRepoRoot, dbPathFor, AIDIMAG_DIR } from "../db/store.j
 import { mineCommits } from "../capture/commit-miner.js";
 import { verifyAll } from "../verify/engine.js";
 import { installGitHooks } from "../verify/hooks.js";
+import { hybridSearch, indexMemory, reindexAll } from "../embeddings/search.js";
 import type { EvidenceType, MemoryEntry, MemoryKind, Proposal } from "../types.js";
 
 /** Version comes from package.json — single source of truth. */
@@ -112,7 +113,7 @@ program
     "-e, --evidence <spec...>",
     "Evidence as TYPE:payload, e.g. COMMIT_REF:abc123 or STATIC_CHECK:'grep ...'"
   )
-  .action((claim: string, opts) => {
+  .action(async (claim: string, opts) => {
     const kind = String(opts.kind).toUpperCase() as MemoryKind;
     if (!KINDS.includes(kind)) fail(`invalid kind '${opts.kind}'. Use one of: ${KINDS.join(", ")}`);
     const evidence = (opts.evidence as string[] | undefined)?.map((spec) => {
@@ -124,20 +125,21 @@ program
     const store = MemoryStore.open(process.cwd(), { create: true });
     const entry = store.write({ kind, claim, paths: opts.path, symbols: opts.symbol, evidence, createdBy: "human" });
     printMemory(entry, true);
+    await indexMemory(store, entry).catch(() => false);
     store.close();
   });
 
 program
   .command("recall")
-  .description("Search memories by keywords; use --path to scope to files")
+  .description("Search memories — hybrid keyword + semantic when embeddings are configured")
   .argument("[query...]", "Keywords to search")
   .option("-p, --path <paths...>", "Restrict to memories scoped to these paths")
   .option("-k, --kind <kind>", "Filter by kind")
   .option("-n, --limit <n>", "Max results", "10")
   .option("--all", "Include refuted memories")
-  .action((query: string[], opts) => {
+  .action(async (query: string[], opts) => {
     const store = MemoryStore.open();
-    const results = store.search({
+    const { results, semantic } = await hybridSearch(store, {
       query: query.join(" "),
       paths: opts.path,
       kind: opts.kind ? (String(opts.kind).toUpperCase() as MemoryKind) : undefined,
@@ -146,6 +148,23 @@ program
     });
     if (results.length === 0) console.log("No matching memories.");
     for (const m of results) printMemory(m, true);
+    if (query.length && !semantic) {
+      console.log("\n(keyword search only — set up Ollama or OPENAI_API_KEY for semantic recall, then `dim reindex`)");
+    }
+    store.close();
+  });
+
+program
+  .command("reindex")
+  .description("Build/refresh semantic embeddings for all memories")
+  .action(async () => {
+    const store = MemoryStore.open();
+    if (!store.vecAvailable) fail("sqlite-vec extension failed to load on this platform");
+    const { indexed, provider } = await reindexAll(store);
+    if (!provider) {
+      fail("no embedding provider available — run Ollama locally or set OPENAI_API_KEY (see AIDIMAG_EMBEDDINGS)");
+    }
+    console.log(`Indexed ${indexed} memorie(s) with ${provider.name}/${provider.model} (${provider.dim}d).`);
     store.close();
   });
 

@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { MemoryStore, findRepoRoot } from "../db/store.js";
 import { SESSION_END_PROMPT, proposalSummaryLine } from "../capture/session-extraction.js";
 import { verifyAll } from "../verify/engine.js";
+import { hybridSearch, indexMemory } from "../embeddings/search.js";
 import type { MemoryEntry } from "../types.js";
 
 const PKG_VERSION: string = JSON.parse(
@@ -79,7 +80,7 @@ async function main() {
       limit: z.number().int().min(1).max(50).optional(),
     },
     async (args) => {
-      const results = store.search({
+      const { results } = await hybridSearch(store, {
         query: args.query,
         kind: args.kind,
         status: args.status,
@@ -126,6 +127,7 @@ async function main() {
         evidence: args.evidence,
         createdBy: args.created_by ?? "agent",
       });
+      await indexMemory(store, entry).catch(() => false);
       return {
         content: [{ type: "text", text: `Memory saved (id=${entry.id}, status=${entry.status}).\n${renderMemory(entry)}` }],
       };

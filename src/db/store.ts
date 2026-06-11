@@ -4,6 +4,7 @@
  */
 
 import Database from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -57,11 +58,21 @@ interface MemoryRow {
 export class MemoryStore {
   private db: Database.Database;
   readonly dbPath: string;
+  /** true if the sqlite-vec extension loaded (vector search available) */
+  readonly vecAvailable: boolean;
 
   constructor(dbPath: string) {
     this.dbPath = dbPath;
     mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
+    let vecOk = false;
+    try {
+      sqliteVec.load(this.db);
+      vecOk = true;
+    } catch {
+      // vector search unavailable on this platform — FTS-only mode
+    }
+    this.vecAvailable = vecOk;
     this.db.exec(SCHEMA_SQL);
     this.db
       .prepare(
@@ -236,6 +247,72 @@ export class MemoryStore {
       }
     ).n;
     return { total, byStatus, byKind, dbPath: this.dbPath, pendingProposals };
+  }
+
+  // ---------------------------------------------------------------- embeddings (semantic recall)
+
+  /**
+   * Ensure the vec0 table exists for the given model+dimension.
+   * If the model changed since last index, drops and requires reindex.
+   * Returns false if vector search is unavailable.
+   */
+  ensureVecTable(model: string, dim: number): boolean {
+    if (!this.vecAvailable) return false;
+    const current = this.getMeta("embedding_model");
+    if (current && current !== `${model}:${dim}`) {
+      this.db.exec("DROP TABLE IF EXISTS vec_memories");
+    }
+    this.db.exec(
+      `CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(memory_rowid integer primary key, embedding float[${dim}])`
+    );
+    this.setMeta("embedding_model", `${model}:${dim}`);
+    return true;
+  }
+
+  upsertEmbedding(memoryId: string, vector: number[]): void {
+    if (!this.vecAvailable) return;
+    const row = this.db.prepare("SELECT rowid FROM memories WHERE id = ?").get(memoryId) as
+      | { rowid: number }
+      | undefined;
+    if (!row) return;
+    this.db.prepare("DELETE FROM vec_memories WHERE memory_rowid = ?").run(BigInt(row.rowid));
+    this.db
+      .prepare("INSERT INTO vec_memories (memory_rowid, embedding) VALUES (?, ?)")
+      .run(BigInt(row.rowid), new Float32Array(vector));
+  }
+
+  /** Memory ids missing an embedding (for reindex/backfill). */
+  unembeddedIds(): string[] {
+    if (!this.vecAvailable) return [];
+    try {
+      return (
+        this.db
+          .prepare(
+            `SELECT m.id FROM memories m
+             WHERE m.rowid NOT IN (SELECT memory_rowid FROM vec_memories)`
+          )
+          .all() as Array<{ id: string }>
+      ).map((r) => r.id);
+    } catch {
+      return this.list(10_000).map((m) => m.id); // vec table doesn't exist yet
+    }
+  }
+
+  /** KNN over memory embeddings → [memoryId, distance] pairs, nearest first. */
+  knn(queryVector: number[], k = 10): Array<{ id: string; distance: number }> {
+    if (!this.vecAvailable) return [];
+    try {
+      return this.db
+        .prepare(
+          `SELECT m.id, v.distance FROM vec_memories v
+           JOIN memories m ON m.rowid = v.memory_rowid
+           WHERE v.embedding MATCH ? AND k = ?
+           ORDER BY v.distance`
+        )
+        .all(new Float32Array(queryVector), BigInt(k)) as Array<{ id: string; distance: number }>;
+    } catch {
+      return [];
+    }
   }
 
   // ---------------------------------------------------------------- proposals (Phase 2)
