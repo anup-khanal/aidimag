@@ -35,7 +35,7 @@ dim status
 | `dim verify` | Re-run evidence, update statuses (`--deep` for tests/exec, `-q` for hooks, `-i <id>` to scope; exit 2 if anything went stale) |
 | `dim log` | Recent memories |
 | `dim forget <id>` | Delete a memory |
-| `dim ui` | Local web dashboard — memory list, review queue, verify buttons, visual graph (`-p <port>`, default 4517) |
+| `dim ui` | Web dashboard covering every workflow — add/search memories, review queue, verify, mine, sync, cloud link, API keys, memory graph (`-p <port>`, default 4517) |
 | `dim serve` | Run a self-hosted team sync server (`--token`, `--db`, `--port`) |
 | `dim cloud link\|status\|unlink` | Bind the repo to a sync server brain |
 | `dim sync` | Push/pull memory with the linked team server |

@@ -9,12 +9,30 @@
 
 import { createServer } from "node:http";
 import { verifyAll } from "../verify/engine.js";
+import { mineCommits } from "../capture/commit-miner.js";
+import { hybridSearch, indexMemory, reindexAll } from "../embeddings/search.js";
+import { readCloudConfig, writeCloudConfig, saveToken, getToken, sync as cloudSync } from "../sync/client.js";
 import type { MemoryStore } from "../db/store.js";
+import type { MemoryKind } from "../types.js";
 import { PAGE_HTML } from "./page.js";
 
 function json(res: import("node:http").ServerResponse, code: number, body: unknown): void {
   res.writeHead(code, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
+}
+
+function readBody(req: import("node:http").IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (d) => (body += d));
+    req.on("end", () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
 }
 
 export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517): Promise<string> {
@@ -30,19 +48,131 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
       }
 
       if (req.method === "GET" && path === "/api/state") {
+        const cloud = readCloudConfig(repoRoot);
         json(res, 200, {
           repoRoot,
           memories: store.list(1000),
           proposals: store.listProposals("PENDING", 200),
           summary: store.statusSummary(),
+          cloud: cloud
+            ? { server: cloud.server, brain: cloud.brain, hasToken: !!getToken(cloud.server) }
+            : null,
+          vecAvailable: store.vecAvailable,
         });
+        return;
+      }
+
+      // ---- search (hybrid when embeddings configured) ----
+      if (req.method === "GET" && path === "/api/search") {
+        const { results, semantic } = await hybridSearch(store, {
+          query: url.searchParams.get("q") ?? "",
+          kind: (url.searchParams.get("kind") as MemoryKind) || undefined,
+          paths: url.searchParams.get("path") ? [url.searchParams.get("path")!] : undefined,
+          limit: 50,
+          includeRefuted: url.searchParams.get("all") === "1",
+        });
+        json(res, 200, { results, semantic });
+        return;
+      }
+
+      // ---- create memory (dim remember) ----
+      if (req.method === "POST" && path === "/api/memories") {
+        const b = await readBody(req);
+        if (!b.kind || !b.claim) {
+          json(res, 400, { error: "kind and claim are required" });
+          return;
+        }
+        const entry = store.write({
+          kind: b.kind as MemoryKind,
+          claim: String(b.claim),
+          paths: (b.paths as string[]) ?? [],
+          symbols: (b.symbols as string[]) ?? [],
+          evidence: (b.evidence as Array<{ type: never; payload: string }>) ?? [],
+          createdBy: "human:dashboard",
+        });
+        await indexMemory(store, entry).catch(() => false);
+        json(res, 201, { memory: entry });
         return;
       }
 
       if (req.method === "POST" && path === "/api/verify") {
         const deep = url.searchParams.get("deep") === "1";
-        const report = verifyAll(store, repoRoot, { deep });
-        json(res, 200, report);
+        json(res, 200, verifyAll(store, repoRoot, { deep }));
+        return;
+      }
+
+      // ---- mine git history ----
+      if (req.method === "POST" && path === "/api/mine") {
+        const full = url.searchParams.get("full") === "1";
+        const r = mineCommits(store, repoRoot, { full });
+        json(res, 200, { scanned: r.scanned, proposed: r.proposed.length, skipped: r.skippedDuplicates });
+        return;
+      }
+
+      // ---- embeddings reindex ----
+      if (req.method === "POST" && path === "/api/reindex") {
+        const r = await reindexAll(store);
+        json(res, 200, {
+          indexed: r.indexed,
+          provider: r.provider ? `${r.provider.name}/${r.provider.model}` : null,
+        });
+        return;
+      }
+
+      // ---- team sync ----
+      if (req.method === "POST" && path === "/api/sync") {
+        const r = await cloudSync(store, repoRoot);
+        json(res, 200, r);
+        return;
+      }
+
+      // ---- cloud link/unlink ----
+      if (req.method === "POST" && path === "/api/cloud/link") {
+        const b = await readBody(req);
+        if (!b.server || !b.brain) {
+          json(res, 400, { error: "server and brain are required" });
+          return;
+        }
+        const serverUrl = String(b.server).replace(/\/$/, "");
+        writeCloudConfig(repoRoot, { server: serverUrl, brain: String(b.brain) });
+        if (b.token) saveToken(serverUrl, String(b.token));
+        json(res, 200, { ok: true, hasToken: !!getToken(serverUrl) });
+        return;
+      }
+      if (req.method === "POST" && path === "/api/cloud/unlink") {
+        writeCloudConfig(repoRoot, { server: "", brain: "" } as never);
+        json(res, 200, { ok: true });
+        return;
+      }
+
+      // ---- API key management (proxies to the sync server; admin token is
+      //      passed per-request from the UI and never stored) ----
+      if (path === "/api/keys") {
+        const b = req.method === "GET" ? {} : await readBody(req);
+        const cloud = readCloudConfig(repoRoot);
+        const target = String((b.server as string) ?? url.searchParams.get("server") ?? cloud?.server ?? "");
+        const admin = String((b.adminToken as string) ?? url.searchParams.get("adminToken") ?? "");
+        if (!target || !admin) {
+          json(res, 400, { error: "server and adminToken are required" });
+          return;
+        }
+        const headers = { "Content-Type": "application/json", Authorization: `Bearer ${admin}` };
+        let upstream: Response;
+        if (req.method === "POST" && !b.revoke) {
+          upstream = await fetch(`${target}/v1/keys`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ brain: b.brain, label: b.label }),
+          });
+        } else if (req.method === "POST" && b.revoke) {
+          upstream = await fetch(`${target}/v1/keys?key=${encodeURIComponent(String(b.revoke))}`, {
+            method: "DELETE",
+            headers,
+          });
+        } else {
+          upstream = await fetch(`${target}/v1/keys`, { headers });
+        }
+        json(res, upstream.status, await upstream.json());
         return;
       }
 
@@ -50,8 +180,11 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
       const propMatch = path.match(/^\/api\/proposals\/([^/]+)\/(approve|reject)$/);
       if (req.method === "POST" && propMatch) {
         const [, id, action] = propMatch;
-        if (action === "approve") json(res, 200, { memory: store.approveProposal(id) });
-        else json(res, 200, { proposal: store.rejectProposal(id) });
+        if (action === "approve") {
+          const memory = store.approveProposal(id);
+          await indexMemory(store, memory).catch(() => false);
+          json(res, 200, { memory });
+        } else json(res, 200, { proposal: store.rejectProposal(id) });
         return;
       }
 

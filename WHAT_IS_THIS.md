@@ -134,7 +134,7 @@ Three ways, use any mix:
 | `dim status` / `dim log` | Health check / recent memories |
 | `dim refute <id>` | Mark a memory false (kept as negative knowledge) |
 | `dim forget <id>` | Delete a memory entirely |
-| `dim ui` | **Open the visual dashboard in your browser** — browse memories, approve proposals, run verification, and explore the memory graph without touching the CLI |
+| `dim ui` | **Open the visual dashboard in your browser** — every workflow has a UI here (add/search memories, approve proposals, verify, mine git history, team sync setup, API keys, memory graph), so you never *need* the CLI day-to-day |
 
 ---
 
