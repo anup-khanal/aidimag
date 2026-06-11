@@ -2,7 +2,7 @@
   "name": "aidimag-vscode",
   "displayName": "aidimag — repo brain",
   "description": "Persistent, verified memory for AI coding agents. Dashboard, memory graph, and stale-memory warnings inside VSCode.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "aidimag",
   "license": "MIT",
   "engines": { "vscode": "^1.85.0" },
@@ -27,6 +27,11 @@
           "type": "number",
           "default": 4517,
           "description": "Port for the dashboard server"
+        },
+        "aidimag.autoSyncMinutes": {
+          "type": "number",
+          "default": 10,
+          "description": "Auto-sync team memory every N minutes (0 to disable)"
         }
       }
     }

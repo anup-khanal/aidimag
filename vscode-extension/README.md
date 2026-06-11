@@ -14,6 +14,10 @@ in the status bar.
   - `☁ mybrain ⚠` (warning color) → linked but no token stored
   - `☁ mybrain ✗` (error color) → last sync failed; click retries
   Refreshes on window focus and after every sync.
+- **Auto-sync** — when the repo is cloud-linked (with a token), team memory syncs
+  automatically every 10 minutes and once shortly after startup. Configure via
+  `aidimag.autoSyncMinutes` (0 disables). Background failures never pop dialogs —
+  the ☁ item just turns red.
 - **aidimag: Open Dashboard** — full dashboard (memory list, review queue, verify
   buttons, force-directed memory graph) in a webview panel. Starts `dim ui`
   automatically if it isn't running.

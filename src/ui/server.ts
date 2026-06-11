@@ -36,6 +36,19 @@ function readBody(req: import("node:http").IncomingMessage): Promise<Record<stri
 }
 
 export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517): Promise<string> {
+  // Auto-sync with the linked team server every N minutes while the dashboard
+  // runs (AIDIMAG_AUTOSYNC_MINUTES, default 10, 0 disables). Failures are
+  // silent — the next manual sync or dashboard action surfaces them.
+  const autoSyncMinutes = Number(process.env.AIDIMAG_AUTOSYNC_MINUTES ?? "10");
+  if (autoSyncMinutes > 0) {
+    const timer = setInterval(() => {
+      const cloud = readCloudConfig(repoRoot);
+      if (!cloud || !getToken(cloud.server)) return;
+      cloudSync(store, repoRoot).catch(() => undefined);
+    }, autoSyncMinutes * 60 * 1000);
+    timer.unref(); // never keep the process alive on its own
+  }
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost:${port}`);
     const path = url.pathname;

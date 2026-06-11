@@ -21,7 +21,11 @@ let lastSync = null; // { when: Date, summary: string, ok: boolean }
 
 function cfg() {
   const c = vscode.workspace.getConfiguration("aidimag");
-  return { dim: c.get("dimPath") || "dim", port: c.get("uiPort") || 4517 };
+  return {
+    dim: c.get("dimPath") || "dim",
+    port: c.get("uiPort") || 4517,
+    autoSyncMinutes: c.get("autoSyncMinutes") ?? 10,
+  };
 }
 
 function repoRoot() {
@@ -122,20 +126,50 @@ async function verify() {
   }
 }
 
-async function sync() {
+async function sync(opts) {
+  const silent = opts && opts.silent;
   const root = repoRoot();
   if (!root) return;
   syncStatusItem.text = "☁ syncing…";
   try {
     const { stdout } = await runDim(["sync"], root);
     lastSync = { when: new Date(), summary: stdout.trim(), ok: true };
-    vscode.window.setStatusBarMessage(`aidimag: ${stdout.trim()}`, 6000);
+    if (!silent) vscode.window.setStatusBarMessage(`aidimag: ${stdout.trim()}`, 6000);
     refreshStatusBar();
   } catch (err) {
     lastSync = { when: new Date(), summary: err.message, ok: false };
-    vscode.window.showErrorMessage(`aidimag sync: ${err.message}`);
+    // background failures stay quiet — the ☁ ✗ status item carries the signal
+    if (!silent) vscode.window.showErrorMessage(`aidimag sync: ${err.message}`);
   }
   refreshSyncStatus();
+}
+
+// ---------------------------------------------------------------- auto-sync
+
+let autoSyncTimer = null;
+
+async function isCloudLinked() {
+  const root = repoRoot();
+  if (!root) return false;
+  try {
+    const { stdout } = await runDim(["cloud", "status"], root);
+    return !/Not cloud-linked/i.test(stdout) && !/token:\s*MISSING/.test(stdout);
+  } catch {
+    return false;
+  }
+}
+
+function scheduleAutoSync(context) {
+  if (autoSyncTimer) {
+    clearInterval(autoSyncTimer);
+    autoSyncTimer = null;
+  }
+  const minutes = cfg().autoSyncMinutes;
+  if (!minutes || minutes <= 0) return;
+  autoSyncTimer = setInterval(async () => {
+    if (await isCloudLinked()) await sync({ silent: true });
+  }, minutes * 60 * 1000);
+  context.subscriptions.push({ dispose: () => autoSyncTimer && clearInterval(autoSyncTimer) });
 }
 
 async function refreshSyncStatus() {
@@ -214,6 +248,17 @@ function activate(context) {
 
   refreshStatusBar();
   refreshSyncStatus();
+  scheduleAutoSync(context);
+  // initial background sync shortly after startup (if linked)
+  setTimeout(async () => {
+    if (cfg().autoSyncMinutes > 0 && (await isCloudLinked())) await sync({ silent: true });
+  }, 5000);
+  // reschedule when the user changes the interval setting
+  vscode.workspace.onDidChangeConfiguration(
+    (e) => e.affectsConfiguration("aidimag.autoSyncMinutes") && scheduleAutoSync(context),
+    null,
+    context.subscriptions
+  );
   // re-check after git operations are likely (window focus)
   vscode.window.onDidChangeWindowState(
     (s) => {
