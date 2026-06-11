@@ -427,6 +427,58 @@ program
   });
 
 program
+  .command("keys")
+  .description("Manage brain-scoped API keys on the sync server (admin token required)")
+  .argument("<action>", "create | list | revoke")
+  .option("-s, --server <url>", "Server URL (defaults to the repo's linked server)")
+  .option("-b, --brain <name>", "Brain the key grants access to (create)")
+  .option("-l, --label <text>", "Key label, e.g. 'ci' or 'alice-laptop' (create)")
+  .option("-k, --key <key>", "Key to revoke")
+  .option("-t, --admin-token <token>", "Admin token (or AIDIMAG_ADMIN_TOKEN env)")
+  .action(async (action: string, opts) => {
+    const { readCloudConfig } = await import("../sync/client.js");
+    const root = findRepoRoot();
+    const server: string | undefined = opts.server ?? (root ? readCloudConfig(root)?.server : undefined);
+    if (!server) fail("no server: pass --server or link the repo with `dim cloud link`");
+    const admin = opts.adminToken ?? process.env.AIDIMAG_ADMIN_TOKEN;
+    if (!admin) fail("provide --admin-token or set AIDIMAG_ADMIN_TOKEN");
+    const call = async (method: string, pathq: string, body?: unknown) => {
+      const res = await fetch(`${server}${pathq}`, {
+        method,
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin}` },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const json = await res.json();
+      if (!res.ok) fail(`server: ${JSON.stringify(json)}`);
+      return json;
+    };
+    switch (action) {
+      case "create": {
+        if (!opts.brain) fail("usage: dim keys create --brain <name> [--label <text>]");
+        const r = (await call("POST", "/v1/keys", { brain: opts.brain, label: opts.label })) as { key: string };
+        console.log(`Created key for brain '${opts.brain}':\n${r.key}\n\n⚠ Shown once — store it now (teammates: dim cloud link --token <key>).`);
+        break;
+      }
+      case "list": {
+        const r = (await call("GET", "/v1/keys")) as { keys: Array<{ key: string; brain: string; label: string | null; created_at: string; revoked_at: string | null }> };
+        if (!r.keys.length) console.log("No keys.");
+        for (const k of r.keys) {
+          console.log(`${k.revoked_at ? "✗" : "✓"} ${k.key}  brain=${k.brain}${k.label ? `  label=${k.label}` : ""}${k.revoked_at ? "  (revoked)" : ""}`);
+        }
+        break;
+      }
+      case "revoke": {
+        if (!opts.key) fail("usage: dim keys revoke --key <full-key>");
+        const r = (await call("DELETE", `/v1/keys?key=${encodeURIComponent(opts.key)}`)) as { revoked: boolean };
+        console.log(r.revoked ? "Key revoked." : "Key not found (or already revoked).");
+        break;
+      }
+      default:
+        fail(`unknown action '${action}'. Use: create | list | revoke`);
+    }
+  });
+
+program
   .command("mcp")
   .description("Run the aidimag MCP server (stdio)")
   .action(async () => {

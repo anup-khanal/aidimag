@@ -39,6 +39,7 @@ dim status
 | `dim serve` | Run a self-hosted team sync server (`--token`, `--db`, `--port`) |
 | `dim cloud link\|status\|unlink` | Bind the repo to a sync server brain |
 | `dim sync` | Push/pull memory with the linked team server |
+| `dim keys create\|list\|revoke` | Mint/revoke brain-scoped API keys (admin token) |
 | `dim mcp` | Run the MCP server (stdio) |
 
 ## Capture pipeline (Phase 2)
@@ -105,6 +106,18 @@ dim sync
   Tokens live in `~/.aidimag/credentials.json` (or `AIDIMAG_API_KEY`).
 - The server is a dumb ordered log (node:http + SQLite) — merge logic, verification,
   and ranking all stay client-side. The future hosted SaaS wraps this same protocol.
+- **API keys**: the `--token` you start the server with is the *admin* token. Mint
+  revocable, brain-scoped member keys instead of sharing it:
+  `AIDIMAG_ADMIN_TOKEN=… dim keys create --brain myrepo --label alice` →
+  `aidimag_sk_…` (only valid for that brain; `dim keys revoke` kills it instantly).
+- **Hosted deployment**: see [deploy/README.md](./deploy/README.md) — Dockerfile +
+  Fly.io config, ~10 minutes to a private hosted server.
+
+## VSCode extension
+
+[`vscode-extension/`](./vscode-extension/) — dashboard webview + 🧠 status-bar memory
+health (turns warning-colored when memories go STALE) + verify/sync commands.
+`F5` to develop, `vsce package` to install (a prebuilt `.vsix` is included).
 
 ## MCP server
 
@@ -136,5 +149,7 @@ Phase 5 (verification v2) ✅ — TEST_RESULT + EXEC_TRACE deep tier, confidence
 Web dashboard ✅ — `dim ui`: memory browser, proposal review, verify buttons, force-directed memory graph.
 Semantic recall ✅ — hybrid FTS + sqlite-vec KNN with pluggable embeddings (OpenAI/Ollama, auto-detected).
 Phase 6 (team mode v1) ✅ — self-hostable sync server (`dim serve`), LWW sync with tombstones (`dim sync`).
-Next: npm publish; hosted SaaS (OAuth/billing per CLOUD_DESIGN.md); IDE extensions.
+SaaS-ready auth ✅ — brain-scoped API keys (`dim keys`), Docker/Fly deployment (deploy/).
+VSCode extension ✅ — dashboard webview, status-bar memory health (vscode-extension/).
+Next: npm publish; hosted SaaS top layer (OAuth/billing per CLOUD_DESIGN.md).
 

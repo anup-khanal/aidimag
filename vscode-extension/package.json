@@ -1,0 +1,38 @@
+{
+  "name": "aidimag-vscode",
+  "displayName": "aidimag — repo brain",
+  "description": "Persistent, verified memory for AI coding agents. Dashboard, memory graph, and stale-memory warnings inside VSCode.",
+  "version": "0.1.0",
+  "publisher": "aidimag",
+  "license": "MIT",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["AI", "Other"],
+  "activationEvents": ["workspaceContains:.aidimag/**"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "aidimag.openDashboard", "title": "aidimag: Open Dashboard" },
+      { "command": "aidimag.verify", "title": "aidimag: Verify Memories" },
+      { "command": "aidimag.sync", "title": "aidimag: Sync Team Memory" }
+    ],
+    "configuration": {
+      "title": "aidimag",
+      "properties": {
+        "aidimag.dimPath": {
+          "type": "string",
+          "default": "dim",
+          "description": "Path to the dim CLI binary"
+        },
+        "aidimag.uiPort": {
+          "type": "number",
+          "default": 4517,
+          "description": "Port for the dashboard server"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "vsce package"
+  }
+}
+

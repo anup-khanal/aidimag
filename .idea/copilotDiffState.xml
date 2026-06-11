@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CopilotDiffPersistence">
+    <option name="pendingDiffs">
+      <map>
+        <entry key="$PROJECT_DIR$/vscode-extension/.vscode/launch.json">
+          <value>
+            <PendingDiffInfo>
+              <option name="filePath" value="$PROJECT_DIR$/vscode-extension/.vscode/launch.json" />
+              <option name="updatedContent" value="{&#10;  &quot;version&quot;: &quot;0.2.0&quot;,&#10;  &quot;configurations&quot;: [&#10;    {&#10;      &quot;name&quot;: &quot;Run Extension&quot;,&#10;      &quot;type&quot;: &quot;extensionHost&quot;,&#10;      &quot;request&quot;: &quot;launch&quot;,&#10;      &quot;args&quot;: [&quot;--extensionDevelopmentPath=${workspaceFolder}&quot;]&#10;    }&#10;  ]&#10;}&#10;" />
+            </PendingDiffInfo>
+          </value>
+        </entry>
+        <entry key="$PROJECT_DIR$/vscode-extension/.vscodeignore">
+          <value>
+            <PendingDiffInfo>
+              <option name="filePath" value="$PROJECT_DIR$/vscode-extension/.vscodeignore" />
+              <option name="updatedContent" value=".vscode/**&#10;node_modules/**&#10;*.vsix&#10;" />
+            </PendingDiffInfo>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>

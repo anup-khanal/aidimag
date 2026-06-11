@@ -18,7 +18,7 @@ import { createServer } from "node:http";
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual, randomBytes } from "node:crypto";
 
 export interface SyncItem {
   tbl: "memories" | "proposals";
@@ -50,6 +50,14 @@ CREATE TABLE IF NOT EXISTS latest (
   PRIMARY KEY (brain, tbl, id)
 );
 CREATE INDEX IF NOT EXISTS idx_items_brain_seq ON items(brain, seq);
+-- multi-tenant: brain-scoped API keys minted by the admin token
+CREATE TABLE IF NOT EXISTS api_keys (
+  key        TEXT PRIMARY KEY,           -- aidimag_sk_...
+  brain      TEXT NOT NULL,
+  label      TEXT,
+  created_at TEXT NOT NULL,
+  revoked_at TEXT
+);
 `;
 
 function safeEqual(a: string, b: string): boolean {
@@ -93,12 +101,63 @@ export function startSyncServer(opts: {
     }
 
     const auth = req.headers.authorization ?? "";
-    if (!auth.startsWith("Bearer ") || !safeEqual(auth.slice(7), opts.token)) {
-      return respond(401, { error: "unauthorized" });
+    if (!auth.startsWith("Bearer ")) return respond(401, { error: "unauthorized" });
+    const presented = auth.slice(7);
+    const isAdmin = safeEqual(presented, opts.token);
+
+    // ---- key management (admin only) -------------------------------------
+    if (url.pathname === "/v1/keys") {
+      if (!isAdmin) return respond(403, { error: "admin token required" });
+      if (req.method === "POST") {
+        let body = "";
+        req.on("data", (d) => (body += d));
+        req.on("end", () => {
+          try {
+            const { brain: keyBrain, label } = JSON.parse(body || "{}") as { brain?: string; label?: string };
+            if (!keyBrain) return respond(400, { error: "missing brain" });
+            const key = `aidimag_sk_${randomBytes(24).toString("base64url")}`;
+            db.prepare("INSERT INTO api_keys (key, brain, label, created_at) VALUES (?, ?, ?, ?)").run(
+              key,
+              keyBrain,
+              label ?? null,
+              new Date().toISOString()
+            );
+            respond(201, { key, brain: keyBrain, label: label ?? null });
+          } catch (err) {
+            respond(400, { error: err instanceof Error ? err.message : String(err) });
+          }
+        });
+        return;
+      }
+      if (req.method === "GET") {
+        const keys = db
+          .prepare("SELECT key, brain, label, created_at, revoked_at FROM api_keys ORDER BY created_at")
+          .all() as Array<{ key: string }>;
+        // redact key bodies in listings
+        return respond(200, {
+          keys: keys.map((k) => ({ ...k, key: `${k.key.slice(0, 14)}…${k.key.slice(-4)}` })),
+        });
+      }
+      if (req.method === "DELETE") {
+        const target = url.searchParams.get("key");
+        if (!target) return respond(400, { error: "missing ?key=" });
+        const r = db
+          .prepare("UPDATE api_keys SET revoked_at = ? WHERE key = ? AND revoked_at IS NULL")
+          .run(new Date().toISOString(), target);
+        return respond(200, { revoked: r.changes > 0 });
+      }
+      return respond(405, { error: "method not allowed" });
     }
 
+    // ---- sync endpoints: admin token OR a live key scoped to this brain ---
     const brain = url.searchParams.get("brain");
     if (!brain) return respond(400, { error: "missing ?brain=" });
+    if (!isAdmin) {
+      const keyRow = db
+        .prepare("SELECT brain FROM api_keys WHERE key = ? AND revoked_at IS NULL")
+        .get(presented) as { brain: string } | undefined;
+      if (!keyRow || keyRow.brain !== brain) return respond(401, { error: "unauthorized for this brain" });
+    }
 
     if (req.method === "POST" && url.pathname === "/v1/push") {
       let body = "";
