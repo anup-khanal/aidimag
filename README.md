@@ -34,6 +34,7 @@ dim status
 | `dim verify` | Re-run evidence, update statuses (`--deep` for tests/exec, `-q` for hooks, `-i <id>` to scope; exit 2 if anything went stale) |
 | `dim log` | Recent memories |
 | `dim forget <id>` | Delete a memory |
+| `dim ui` | Local web dashboard — memory list, review queue, verify buttons, visual graph (`-p <port>`, default 4517) |
 | `dim mcp` | Run the MCP server (stdio) |
 
 ## Capture pipeline (Phase 2)
@@ -91,5 +92,6 @@ Phase 2 (capture) ✅ — commit miner, session-end extraction prompt, proposal 
 Phase 3 (verification v1) ✅ — STATIC_CHECK + COMMIT_REF runners, status lifecycle, git-hook re-verification.
 Phase 4 (pilot) ✅ — piloted on a real repo; status-aware retrieval ranking (see PILOT.md).
 Phase 5 (verification v2) ✅ — TEST_RESULT + EXEC_TRACE deep tier, confidence decay with auto-demotion.
-Next: Phase 6 — team mode (shared store sync, contradiction resolution); npm publish.
+Web dashboard ✅ — `dim ui`: memory browser, proposal review, verify buttons, force-directed memory graph.
+Next: Phase 6 — team mode (shared store sync, contradiction resolution); npm publish; IDE extensions (can embed the dashboard in a webview).
 

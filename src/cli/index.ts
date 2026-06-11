@@ -313,6 +313,24 @@ program
   });
 
 program
+  .command("ui")
+  .description("Open the local web dashboard (memory list, review queue, visual graph)")
+  .option("-p, --port <n>", "Port", "4517")
+  .option("--no-open", "Don't open the browser automatically")
+  .action(async (opts) => {
+    const root = findRepoRoot() ?? fail("not inside a repo");
+    const store = MemoryStore.open(root);
+    const { startUiServer } = await import("../ui/server.js");
+    const url = await startUiServer(store, root, parseInt(opts.port, 10));
+    console.log(`aidimag dashboard: ${url}  (Ctrl+C to stop)`);
+    if (opts.open) {
+      const { exec } = await import("node:child_process");
+      const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+      exec(`${opener} ${url}`);
+    }
+  });
+
+program
   .command("mcp")
   .description("Run the aidimag MCP server (stdio)")
   .action(async () => {

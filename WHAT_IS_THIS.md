@@ -134,6 +134,7 @@ Three ways, use any mix:
 | `dim status` / `dim log` | Health check / recent memories |
 | `dim refute <id>` | Mark a memory false (kept as negative knowledge) |
 | `dim forget <id>` | Delete a memory entirely |
+| `dim ui` | **Open the visual dashboard in your browser** — browse memories, approve proposals, run verification, and explore the memory graph without touching the CLI |
 
 ---
 
