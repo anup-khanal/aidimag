@@ -47,9 +47,12 @@ dim status
 
 Nothing enters active memory without human approval:
 
-1. **Commit miner** — `dim mine` scans git history (incrementally, cursor-tracked) for
-   decision/gotcha/failed-approach signals in commit messages, anchors each candidate with
-   `COMMIT_REF` evidence, and queues it as a proposal.
+1. **Commit miner** — runs automatically on every `git commit` (post-commit hook,
+   installed by `dim init`): the new commit is scanned for decision/gotcha/failed-approach
+   signals, and if something looks memory-worthy you get a one-line nudge
+   (`🧠 aidimag: this commit looks memory-worthy — review with dim review`).
+   Also runnable manually: `dim mine` (incremental, cursor-tracked) or `dim mine --full`.
+   Each candidate is anchored with `COMMIT_REF` evidence and queued as a proposal.
 2. **Session-end extraction** — agents invoke the `session_end_extraction` MCP prompt and
    call `memory_propose` with falsifiable, evidence-backed claims.
 3. **Review** — `dim review` lists the queue; `approve` materializes a real memory,
@@ -69,7 +72,7 @@ Memories are falsifiable claims; `dim verify` re-runs their evidence against the
 
 **Confidence decay**: memories that can't be machine-re-verified decay exponentially (45-day half-life; 14 days for human-attested). A VERIFIED memory whose confidence decays below 0.35 is demoted to UNVERIFIED — trust expires without re-confirmation.
 
-`dim init` installs `post-merge` / `post-checkout` / `post-rewrite` git hooks (additive, never clobbers existing hooks) so cheap-tier re-verification runs on every pull, branch switch, and rebase. Run `dim verify --deep` on a schedule (or in CI) for the expensive tier.
+`dim init` installs git hooks (additive, never clobbers existing hooks): `post-merge` / `post-checkout` / `post-rewrite` re-run cheap-tier verification on every pull, branch switch, and rebase, and `post-commit` mines each new commit for memory candidates. Run `dim verify --deep` on a schedule (or in CI) for the expensive tier.
 
 ## Semantic recall (optional, zero-config)
 

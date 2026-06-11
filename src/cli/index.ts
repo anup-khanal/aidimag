@@ -213,6 +213,7 @@ program
   .description("Mine git history for memory candidates (queued for review, never auto-saved)")
   .option("-n, --max <n>", "Max commits to scan", "500")
   .option("--full", "Rescan from the beginning of history (ignore cursor)")
+  .option("-q, --quiet", "Only speak up when candidates are found (for the post-commit hook)")
   .action((opts) => {
     const root = findRepoRoot() ?? fail("not inside a git repo");
     if (!existsSync(path.join(root, ".git"))) fail("commit mining requires a git repo");
@@ -221,6 +222,18 @@ program
       maxCommits: parseInt(opts.max, 10),
       full: Boolean(opts.full),
     });
+    if (opts.quiet) {
+      // post-commit hook mode: a single gentle nudge, nothing else
+      if (res.proposed.length > 0) {
+        const total = store.listProposals("PENDING", 1000).length;
+        console.log(
+          `🧠 aidimag: this commit looks memory-worthy — ${res.proposed.length} proposal(s) queued` +
+            ` (${total} pending). Review with \`dim review\`.`
+        );
+      }
+      store.close();
+      return;
+    }
     console.log(
       `Scanned ${res.scanned} commit(s): ${res.proposed.length} proposal(s) queued` +
         (res.skippedDuplicates ? `, ${res.skippedDuplicates} duplicate(s) skipped` : "") +
