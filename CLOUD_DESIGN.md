@@ -73,6 +73,8 @@ dim sync                  # pulls entire team brain → instant onboarding
 - WebSocket push (teammate's memory appears mid-session)
 - Managed deep-verification runners: server-side sandboxes cloning the repo and
   running `dim verify --deep` on schedule → feeds consensus confidence
+- Ticket middleman: the sync server holds team-shared ticketing credentials and
+  proxies/caches `getTicket` for all members (see TICKETS_DESIGN.md, phase T3)
 - Audit log / export APIs (governance: "what did our agents believe and when")
 - Enterprise: SSO/SAML, VPC or on-prem deployment
 

@@ -167,5 +167,5 @@ Phase 6 (team mode v1) ✅ — self-hostable sync server (`dim serve`), LWW sync
 SaaS-ready auth ✅ — brain-scoped API keys (`dim keys`), Docker/Fly deployment (deploy/).
 VSCode extension ✅ — dashboard webview, status-bar memory health (vscode-extension/).
 SaaS groundwork ✅ — `dim login`/`logout` (device-code flow), append-only event log shipped on sync, cross-machine verification consensus (`/v1/consensus`), debounced auto-sync after writes.
-Next: npm publish; hosted SaaS top layer (GitHub OAuth on the device flow, Postgres, billing per CLOUD_DESIGN.md).
+Next: npm publish; hosted SaaS top layer (GitHub OAuth on the device flow, Postgres, billing per CLOUD_DESIGN.md); ticket-aware capture (Jira/GitHub/Linear context on proposals, per [TICKETS_DESIGN.md](./TICKETS_DESIGN.md)).
 
