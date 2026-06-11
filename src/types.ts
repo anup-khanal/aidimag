@@ -59,6 +59,8 @@ export interface MemoryEntry {
   createdAt: string;
   verifiedAt: string | null;
   supersededBy: string | null;
+  /** last local mutation time (sync LWW anchor) */
+  updatedAt: string | null;
   grounding: Evidence[];
   links: MemoryLink[];
 }
@@ -114,6 +116,8 @@ export interface Proposal extends ProposalInput {
   status: ProposalStatus;
   /** memory id, set when approved */
   memoryId: string | null;
+  /** last local mutation time (sync LWW anchor) */
+  updatedAt?: string | null;
   paths: string[];
   symbols: string[];
   evidence: Array<{ type: EvidenceType; payload: string }>;

@@ -3,7 +3,13 @@
  * FTS5 powers Phase 1 search; sqlite-vec embeddings arrive in Phase 2.
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 3;
+
+/** Idempotent migrations for pre-existing DBs (failures = already applied). */
+export const MIGRATIONS: string[] = [
+  "ALTER TABLE memories ADD COLUMN updated_at TEXT",
+  "ALTER TABLE proposals ADD COLUMN updated_at TEXT",
+];
 
 export const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -26,7 +32,8 @@ CREATE TABLE IF NOT EXISTS memories (
   created_by    TEXT NOT NULL DEFAULT 'human',
   created_at    TEXT NOT NULL,
   verified_at   TEXT,
-  superseded_by TEXT REFERENCES memories(id)
+  superseded_by TEXT REFERENCES memories(id),
+  updated_at    TEXT
 );
 
 -- scope: one row per path / symbol a memory applies to
@@ -89,11 +96,20 @@ CREATE TABLE IF NOT EXISTS proposals (
   rationale  TEXT,                          -- why the source thinks this is worth remembering
   created_at TEXT NOT NULL,
   status     TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED')),
-  memory_id  TEXT REFERENCES memories(id) ON DELETE SET NULL  -- set when approved
+  memory_id  TEXT REFERENCES memories(id) ON DELETE SET NULL,  -- set when approved
+  updated_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_proposals_dedupe ON proposals(source, source_ref, claim);
+
+-- Phase 6: sync — deletions must propagate, so deletes leave tombstones
+CREATE TABLE IF NOT EXISTS tombstones (
+  id         TEXT NOT NULL,                 -- deleted row id
+  tbl        TEXT NOT NULL CHECK (tbl IN ('memories','proposals')),
+  deleted_at TEXT NOT NULL,
+  PRIMARY KEY (id, tbl)
+);
 
 CREATE INDEX IF NOT EXISTS idx_memories_status ON memories(status);
 CREATE INDEX IF NOT EXISTS idx_memories_kind   ON memories(kind);

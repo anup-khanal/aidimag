@@ -356,6 +356,77 @@ program
   });
 
 program
+  .command("serve")
+  .description("Run a self-hosted team sync server")
+  .option("-p, --port <n>", "Port", "8787")
+  .option("-d, --db <path>", "Server database file", "./aidimag-sync.db")
+  .option("-t, --token <token>", "Shared auth token (or AIDIMAG_SYNC_TOKEN env)")
+  .action(async (opts) => {
+    const token = opts.token ?? process.env.AIDIMAG_SYNC_TOKEN;
+    if (!token) fail("provide --token or set AIDIMAG_SYNC_TOKEN");
+    const { startSyncServer } = await import("../sync/server.js");
+    const url = await startSyncServer({ dbPath: opts.db, token, port: parseInt(opts.port, 10) });
+    console.log(`aidimag sync server: ${url}  (db: ${opts.db}, Ctrl+C to stop)`);
+    console.log(`Link a repo with: dim cloud link --server ${url} --brain <name> --token <token>`);
+  });
+
+program
+  .command("cloud")
+  .description("Manage the repo's cloud/team-sync binding")
+  .argument("<action>", "link | unlink | status")
+  .option("-s, --server <url>", "Sync server URL")
+  .option("-b, --brain <name>", "Brain (team memory) name on the server")
+  .option("-t, --token <token>", "Auth token (stored in ~/.aidimag/credentials.json, NOT the repo)")
+  .action(async (action: string, opts) => {
+    const root = findRepoRoot() ?? fail("not inside a repo");
+    const { readCloudConfig, writeCloudConfig, saveToken, getToken } = await import("../sync/client.js");
+    switch (action) {
+      case "link": {
+        if (!opts.server || !opts.brain) fail("usage: dim cloud link --server <url> --brain <name> [--token <token>]");
+        const server = String(opts.server).replace(/\/$/, "");
+        writeCloudConfig(root, { server, brain: opts.brain });
+        if (opts.token) saveToken(server, opts.token);
+        console.log(`Linked to ${server} (brain: ${opts.brain}).`);
+        console.log(`Config in .aidimag/config.json (commit it — no secrets inside). Token in ~/.aidimag/credentials.json.`);
+        if (!opts.token && !getToken(server)) {
+          console.log("⚠ No token stored yet — pass --token or set AIDIMAG_API_KEY before `dim sync`.");
+        }
+        break;
+      }
+      case "unlink": {
+        writeCloudConfig(root, { server: "", brain: "" } as never);
+        console.log("Unlinked (config cleared).");
+        break;
+      }
+      case "status": {
+        const cfg = readCloudConfig(root);
+        if (!cfg) console.log("Not cloud-linked. Use `dim cloud link`.");
+        else console.log(`server: ${cfg.server}\nbrain:  ${cfg.brain}\ntoken:  ${getToken(cfg.server) ? "stored" : "MISSING"}`);
+        break;
+      }
+      default:
+        fail(`unknown action '${action}'. Use: link | unlink | status`);
+    }
+  });
+
+program
+  .command("sync")
+  .description("Sync this repo's memory with the linked team server (push + pull)")
+  .action(async () => {
+    const root = findRepoRoot() ?? fail("not inside a repo");
+    const store = MemoryStore.open(root);
+    const { sync } = await import("../sync/client.js");
+    try {
+      const r = await sync(store, root);
+      console.log(`pushed ${r.pushed}, pulled ${r.pulled} (applied ${r.applied}, kept ${r.skippedOlder} newer local)`);
+    } catch (err) {
+      fail(err instanceof Error ? err.message : String(err));
+    } finally {
+      store.close();
+    }
+  });
+
+program
   .command("mcp")
   .description("Run the aidimag MCP server (stdio)")
   .action(async () => {

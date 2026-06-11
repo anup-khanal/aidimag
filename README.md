@@ -36,6 +36,9 @@ dim status
 | `dim log` | Recent memories |
 | `dim forget <id>` | Delete a memory |
 | `dim ui` | Local web dashboard — memory list, review queue, verify buttons, visual graph (`-p <port>`, default 4517) |
+| `dim serve` | Run a self-hosted team sync server (`--token`, `--db`, `--port`) |
+| `dim cloud link\|status\|unlink` | Bind the repo to a sync server brain |
+| `dim sync` | Push/pull memory with the linked team server |
 | `dim mcp` | Run the MCP server (stdio) |
 
 ## Capture pipeline (Phase 2)
@@ -82,6 +85,27 @@ New memories are embedded on write; run `dim reindex` once to backfill (or after
 switching models). Without any provider, everything still works — searches are just
 literal-keyword only.
 
+## Team mode (Phase 6 — self-hostable sync)
+
+Share one repo brain across a team. The server is included — no SaaS required:
+
+```sh
+# somewhere reachable (laptop, VPS, Fly.io …)
+dim serve --token <shared-secret> --db ./team-sync.db
+
+# each member, in the repo
+dim cloud link --server http://your-server:8787 --brain myrepo --token <shared-secret>
+dim sync
+```
+
+- **Local-first**: agents always read the local SQLite replica; `dim sync` exchanges
+  changes (last-writer-wins by `updated_at`; deletions propagate via tombstones).
+- `.aidimag/config.json` (server + brain name, **no secrets**) is committed to git, so
+  teammates onboard with just `dim init && dim cloud link --token … && dim sync`.
+  Tokens live in `~/.aidimag/credentials.json` (or `AIDIMAG_API_KEY`).
+- The server is a dumb ordered log (node:http + SQLite) — merge logic, verification,
+  and ranking all stay client-side. The future hosted SaaS wraps this same protocol.
+
 ## MCP server
 
 Add to your agent config (e.g. `.mcp.json` for Claude Code):
@@ -111,5 +135,6 @@ Phase 4 (pilot) ✅ — piloted on a real repo; status-aware retrieval ranking (
 Phase 5 (verification v2) ✅ — TEST_RESULT + EXEC_TRACE deep tier, confidence decay with auto-demotion.
 Web dashboard ✅ — `dim ui`: memory browser, proposal review, verify buttons, force-directed memory graph.
 Semantic recall ✅ — hybrid FTS + sqlite-vec KNN with pluggable embeddings (OpenAI/Ollama, auto-detected).
-Next: Phase 6 — team mode (see CLOUD_DESIGN.md); npm publish; IDE extensions (can embed the dashboard in a webview).
+Phase 6 (team mode v1) ✅ — self-hostable sync server (`dim serve`), LWW sync with tombstones (`dim sync`).
+Next: npm publish; hosted SaaS (OAuth/billing per CLOUD_DESIGN.md); IDE extensions.
 

@@ -8,7 +8,7 @@ import * as sqliteVec from "sqlite-vec";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { SCHEMA_SQL, SCHEMA_VERSION } from "./schema.js";
+import { SCHEMA_SQL, SCHEMA_VERSION, MIGRATIONS } from "./schema.js";
 import type {
   Evidence,
   MemoryEntry,
@@ -53,6 +53,7 @@ interface MemoryRow {
   created_at: string;
   verified_at: string | null;
   superseded_by: string | null;
+  updated_at?: string | null;
 }
 
 export class MemoryStore {
@@ -74,6 +75,13 @@ export class MemoryStore {
     }
     this.vecAvailable = vecOk;
     this.db.exec(SCHEMA_SQL);
+    for (const m of MIGRATIONS) {
+      try {
+        this.db.exec(m);
+      } catch {
+        // already applied
+      }
+    }
     this.db
       .prepare(
         "INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
@@ -106,8 +114,8 @@ export class MemoryStore {
     const insert = this.db.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO memories (id, kind, claim, confidence, status, created_by, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO memories (id, kind, claim, confidence, status, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -116,6 +124,7 @@ export class MemoryStore {
           hasEvidence ? 0.7 : 0.5,
           "UNVERIFIED",
           input.createdBy ?? "human",
+          now,
           now
         );
 
@@ -324,8 +333,8 @@ export class MemoryStore {
     try {
       this.db
         .prepare(
-          `INSERT INTO proposals (id, kind, claim, paths, symbols, evidence, source, source_ref, rationale, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO proposals (id, kind, claim, paths, symbols, evidence, source, source_ref, rationale, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -339,6 +348,7 @@ export class MemoryStore {
           // unique indexes, which would break (source, source_ref, claim) dedupe.
           input.sourceRef ?? "",
           input.rationale ?? null,
+          now,
           now
         );
     } catch (err) {
@@ -377,8 +387,8 @@ export class MemoryStore {
       createdBy: p.source,
     });
     this.db
-      .prepare("UPDATE proposals SET status = 'APPROVED', memory_id = ? WHERE id = ?")
-      .run(entry.id, p.id);
+      .prepare("UPDATE proposals SET status = 'APPROVED', memory_id = ?, updated_at = ? WHERE id = ?")
+      .run(entry.id, new Date().toISOString(), p.id);
     return entry;
   }
 
@@ -386,7 +396,9 @@ export class MemoryStore {
     const p = this.findProposalByPrefix(id);
     if (!p) throw new Error(`No proposal matching id '${id}'`);
     if (p.status !== "PENDING") throw new Error(`Proposal ${p.id} is already ${p.status}`);
-    this.db.prepare("UPDATE proposals SET status = 'REJECTED' WHERE id = ?").run(p.id);
+    this.db
+      .prepare("UPDATE proposals SET status = 'REJECTED', updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), p.id);
     return { ...p, status: "REJECTED" };
   }
 
@@ -425,41 +437,47 @@ export class MemoryStore {
       createdAt: row.created_at as string,
       status: row.status as ProposalStatus,
       memoryId: (row.memory_id as string | null) ?? null,
+      updatedAt: (row.updated_at as string | null) ?? null,
     };
   }
 
   // ---------------------------------------------------------------- mutate
 
   setStatus(id: string, status: MemoryStatus): void {
-    const verifiedAt = status === "VERIFIED" ? new Date().toISOString() : null;
+    const now = new Date().toISOString();
+    const verifiedAt = status === "VERIFIED" ? now : null;
     const res = this.db
-      .prepare("UPDATE memories SET status = ?, verified_at = COALESCE(?, verified_at) WHERE id = ?")
-      .run(status, verifiedAt, id);
+      .prepare("UPDATE memories SET status = ?, verified_at = COALESCE(?, verified_at), updated_at = ? WHERE id = ?")
+      .run(status, verifiedAt, now, id);
     if (res.changes === 0) throw new Error(`No memory with id ${id}`);
   }
 
   setConfidence(id: string, confidence: number): void {
     this.db
-      .prepare("UPDATE memories SET confidence = ? WHERE id = ?")
-      .run(Math.max(0, Math.min(1, confidence)), id);
+      .prepare("UPDATE memories SET confidence = ?, updated_at = ? WHERE id = ?")
+      .run(Math.max(0, Math.min(1, confidence)), new Date().toISOString(), id);
   }
 
   touchVerified(id: string): void {
+    const now = new Date().toISOString();
     this.db
-      .prepare("UPDATE memories SET verified_at = ? WHERE id = ?")
-      .run(new Date().toISOString(), id);
+      .prepare("UPDATE memories SET verified_at = ?, updated_at = ? WHERE id = ?")
+      .run(now, now, id);
   }
 
   updateEvidenceResult(evidenceId: string, result: Evidence["result"], lastRun: string): void {
     this.db
       .prepare("UPDATE evidence SET result = ?, last_run = ? WHERE id = ?")
       .run(result, lastRun, evidenceId);
+    this.db
+      .prepare("UPDATE memories SET updated_at = ? WHERE id = (SELECT memory_id FROM evidence WHERE id = ?)")
+      .run(lastRun, evidenceId);
   }
 
   refute(id: string, supersededBy?: string): void {
     const res = this.db
-      .prepare("UPDATE memories SET status = 'REFUTED', superseded_by = ? WHERE id = ?")
-      .run(supersededBy ?? null, id);
+      .prepare("UPDATE memories SET status = 'REFUTED', superseded_by = ?, updated_at = ? WHERE id = ?")
+      .run(supersededBy ?? null, new Date().toISOString(), id);
     if (res.changes === 0) throw new Error(`No memory with id ${id}`);
   }
 
@@ -470,6 +488,9 @@ export class MemoryStore {
       this.db.prepare("UPDATE memories SET superseded_by = NULL WHERE superseded_by = ?").run(id);
       const res = this.db.prepare("DELETE FROM memories WHERE id = ?").run(id);
       if (res.changes === 0) throw new Error(`No memory with id ${id}`);
+      this.db
+        .prepare("INSERT OR REPLACE INTO tombstones (id, tbl, deleted_at) VALUES (?, 'memories', ?)")
+        .run(id, new Date().toISOString());
     });
     tx();
   }
@@ -480,6 +501,143 @@ export class MemoryStore {
         "INSERT OR IGNORE INTO memory_links (from_id, to_id, relation) VALUES (?, ?, ?)"
       )
       .run(fromId, toId, relation);
+  }
+
+  // ---------------------------------------------------------------- sync (Phase 6)
+
+  /** Local changes since `sinceIso` (null = everything), for pushing to a sync server. */
+  changedSince(sinceIso: string | null): {
+    memories: MemoryEntry[];
+    proposals: Proposal[];
+    tombstones: Array<{ id: string; tbl: string; deletedAt: string }>;
+  } {
+    const since = sinceIso ?? "";
+    const memRows = this.db
+      .prepare("SELECT * FROM memories WHERE COALESCE(updated_at, created_at) > ?")
+      .all(since) as MemoryRow[];
+    const propRows = this.db
+      .prepare("SELECT * FROM proposals WHERE COALESCE(updated_at, created_at) > ?")
+      .all(since) as Array<Record<string, unknown>>;
+    const tombs = this.db
+      .prepare("SELECT id, tbl, deleted_at FROM tombstones WHERE deleted_at > ?")
+      .all(since) as Array<{ id: string; tbl: string; deleted_at: string }>;
+    return {
+      memories: memRows.map((r) => this.hydrate(r)),
+      proposals: propRows.map((r) => this.hydrateProposal(r)),
+      tombstones: tombs.map((t) => ({ id: t.id, tbl: t.tbl, deletedAt: t.deleted_at })),
+    };
+  }
+
+  /** Per-memory updated_at (for LWW comparisons). */
+  memoryUpdatedAt(id: string): string | null {
+    const row = this.db
+      .prepare("SELECT COALESCE(updated_at, created_at) AS u FROM memories WHERE id = ?")
+      .get(id) as { u: string } | undefined;
+    return row?.u ?? null;
+  }
+
+  isTombstoned(id: string, tbl: "memories" | "proposals"): boolean {
+    return !!this.db.prepare("SELECT 1 FROM tombstones WHERE id = ? AND tbl = ?").get(id, tbl);
+  }
+
+  /** Upsert a remote memory snapshot (caller already did the LWW check). */
+  applyRemoteMemory(m: MemoryEntry & { updatedAt?: string | null }): void {
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO memories (id, kind, claim, confidence, status, created_by, created_at, verified_at, superseded_by, updated_at)
+           VALUES (@id, @kind, @claim, @confidence, @status, @created_by, @created_at, @verified_at, @superseded_by, @updated_at)
+           ON CONFLICT(id) DO UPDATE SET
+             kind=excluded.kind, claim=excluded.claim, confidence=excluded.confidence,
+             status=excluded.status, verified_at=excluded.verified_at,
+             superseded_by=excluded.superseded_by, updated_at=excluded.updated_at`
+        )
+        .run({
+          id: m.id,
+          kind: m.kind,
+          claim: m.claim,
+          confidence: m.confidence,
+          status: m.status,
+          created_by: m.createdBy,
+          created_at: m.createdAt,
+          verified_at: m.verifiedAt,
+          superseded_by: null, // applied without FK risk; relinked below if target exists
+          updated_at: m.updatedAt ?? m.createdAt,
+        });
+      if (m.supersededBy) {
+        this.db
+          .prepare(
+            "UPDATE memories SET superseded_by = ? WHERE id = ? AND EXISTS (SELECT 1 FROM memories WHERE id = ?)"
+          )
+          .run(m.supersededBy, m.id, m.supersededBy);
+      }
+      this.db.prepare("DELETE FROM memory_scopes WHERE memory_id = ?").run(m.id);
+      const scopeStmt = this.db.prepare(
+        "INSERT OR IGNORE INTO memory_scopes (memory_id, scope_type, value) VALUES (?, ?, ?)"
+      );
+      for (const p of m.scope.paths) scopeStmt.run(m.id, "path", p);
+      for (const s of m.scope.symbols) scopeStmt.run(m.id, "symbol", s);
+      this.db.prepare("DELETE FROM evidence WHERE memory_id = ?").run(m.id);
+      const evStmt = this.db.prepare(
+        "INSERT INTO evidence (id, memory_id, type, payload, last_run, result) VALUES (?, ?, ?, ?, ?, ?)"
+      );
+      for (const e of m.grounding) evStmt.run(e.id, m.id, e.type, e.payload, e.lastRun, e.result);
+    });
+    tx();
+  }
+
+  proposalUpdatedAt(id: string): string | null {
+    const row = this.db
+      .prepare("SELECT COALESCE(updated_at, created_at) AS u FROM proposals WHERE id = ?")
+      .get(id) as { u: string } | undefined;
+    return row?.u ?? null;
+  }
+
+  applyRemoteProposal(p: Proposal & { updatedAt?: string | null }): void {
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO proposals (id, kind, claim, paths, symbols, evidence, source, source_ref, rationale, created_at, status, memory_id, updated_at)
+           VALUES (@id, @kind, @claim, @paths, @symbols, @evidence, @source, @source_ref, @rationale, @created_at, @status, NULL, @updated_at)
+           ON CONFLICT(id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at`
+        )
+        .run({
+          id: p.id,
+          kind: p.kind,
+          claim: p.claim,
+          paths: JSON.stringify(p.paths),
+          symbols: JSON.stringify(p.symbols),
+          evidence: JSON.stringify(p.evidence),
+          source: p.source,
+          source_ref: p.sourceRef ?? "",
+          rationale: p.rationale ?? null,
+          created_at: p.createdAt,
+          status: p.status,
+          updated_at: p.updatedAt ?? p.createdAt,
+        });
+    } catch (err) {
+      // (source, source_ref, claim) dedupe collision with a different id —
+      // the claim is already represented locally; skip rather than fail sync.
+      if (err instanceof Error && /UNIQUE constraint/.test(err.message)) return;
+      throw err;
+    }
+  }
+
+  /** Apply a remote tombstone: delete locally without creating a new tombstone loop. */
+  applyRemoteTombstone(id: string, tbl: "memories" | "proposals", deletedAt: string): void {
+    const tx = this.db.transaction(() => {
+      if (tbl === "memories") {
+        this.db.prepare("UPDATE proposals SET memory_id = NULL WHERE memory_id = ?").run(id);
+        this.db.prepare("UPDATE memories SET superseded_by = NULL WHERE superseded_by = ?").run(id);
+        this.db.prepare("DELETE FROM memories WHERE id = ?").run(id);
+      } else {
+        this.db.prepare("DELETE FROM proposals WHERE id = ?").run(id);
+      }
+      this.db
+        .prepare("INSERT OR REPLACE INTO tombstones (id, tbl, deleted_at) VALUES (?, ?, ?)")
+        .run(id, tbl, deletedAt);
+    });
+    tx();
   }
 
   close(): void {
@@ -524,6 +682,7 @@ export class MemoryStore {
       createdAt: row.created_at,
       verifiedAt: row.verified_at,
       supersededBy: row.superseded_by,
+      updatedAt: row.updated_at ?? null,
       grounding: evidence.map((e) => ({
         id: e.id,
         memoryId: e.memory_id,
