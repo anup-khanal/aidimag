@@ -100,11 +100,14 @@ export function readCommits(repoRoot: string, sinceSha: string | null, maxCommit
   const range = sinceSha ? `${sinceSha}..HEAD` : "HEAD";
   let raw: string;
   try {
+    // NOTE: merges are included on purpose — GitHub "merge pull request"
+    // commits carry the PR title in the body, and squash-merges carry the
+    // full PR description. Pure merge noise ("Merge branch 'x'") has no
+    // signal words, so classifyCommit filters it naturally.
     raw = git(repoRoot, [
       "log",
       range,
       `--max-count=${maxCommits}`,
-      "--no-merges",
       `--pretty=format:${COMMIT_SEP}%H${FIELD_SEP}%s${FIELD_SEP}%b${FIELD_SEP}`,
       "--name-only",
     ]);
@@ -143,13 +146,18 @@ export function classifyCommit(c: MinedCommit): { kind: MemoryKind; matched: str
 }
 
 function buildClaim(c: MinedCommit, kind: MemoryKind): string {
-  const subject = c.subject.trim().replace(/\.+$/, "");
-  const why = c.body
+  let subject = c.subject.trim().replace(/\.+$/, "");
+  let bodyLines = c.body
     .split("\n")
     .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith("Co-authored-by") && !l.startsWith("Signed-off-by"))
-    .join(" ")
-    .slice(0, 300);
+    .filter((l) => l && !l.startsWith("Co-authored-by") && !l.startsWith("Signed-off-by"));
+  // merge commits: the subject is boilerplate ("Merge pull request #123 …");
+  // the PR title is the first body line — promote it.
+  if (/^Merge (pull request|branch)/i.test(subject) && bodyLines.length) {
+    subject = bodyLines[0].replace(/\.+$/, "");
+    bodyLines = bodyLines.slice(1);
+  }
+  const why = bodyLines.join(" ").slice(0, 300);
   const prefix =
     kind === "FAILED_APPROACH"
       ? "An approach was abandoned"
@@ -163,8 +171,12 @@ function buildClaim(c: MinedCommit, kind: MemoryKind): string {
   return why ? `${prefix}: ${subject} — ${why}` : `${prefix}: ${subject}`;
 }
 
+/** Files that say nothing about the code — never useful as memory scope. */
+const SCOPE_NOISE = /^(\.idea\/|\.vscode\/|\.aidimag\/|\.github\/workflows\/.*\.lock|\.gitignore$|\.DS_Store$|node_modules\/)/;
+
 /** Reduce touched files to a few representative scope paths (common directories). */
 export function scopeFromFiles(files: string[], maxPaths = 4): string[] {
+  files = files.filter((f) => !SCOPE_NOISE.test(f));
   if (files.length === 0) return [];
   if (files.length <= maxPaths) return files;
   const dirs = new Map<string, number>();

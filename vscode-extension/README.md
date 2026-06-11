@@ -11,7 +11,7 @@ in the status bar.
   - `☁ not linked` → click opens the dashboard's Cloud dialog
   - `☁ mybrain` → linked; click syncs now
   - `☁ mybrain ✓` → synced this session (tooltip shows last result + time)
-  - `☁ mybrain ⚠` (warning color) → linked but no token stored
+  - `☁ mybrain ⚠` (warning color) → linked but no token stored; click logs this device in
   - `☁ mybrain ✗` (error color) → last sync failed; click retries
   Refreshes on window focus and after every sync.
 - **Auto-sync** — when the repo is cloud-linked (with a token), team memory syncs
@@ -24,6 +24,9 @@ in the status bar.
 - **aidimag: Verify Memories** — runs `dim verify -q`; warns when the codebase
   changed under a memory.
 - **aidimag: Sync Team Memory** — runs `dim sync` against your linked team server.
+- **aidimag: Login (approve this device)** — runs `dim login` in an integrated
+  terminal: shows the device code, opens the server's approval page in the
+  browser, and saves the token once approved.
 
 ## Requirements
 

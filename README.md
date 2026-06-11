@@ -52,7 +52,9 @@ Nothing enters active memory without human approval:
    signals, and if something looks memory-worthy you get a one-line nudge
    (`🧠 aidimag: this commit looks memory-worthy — review with dim review`).
    Also runnable manually: `dim mine` (incremental, cursor-tracked) or `dim mine --full`.
-   Each candidate is anchored with `COMMIT_REF` evidence and queued as a proposal.
+   Merge/squash commits are mined too — GitHub PR titles and descriptions in merge
+   bodies are promoted to the claim. Each candidate is anchored with `COMMIT_REF`
+   evidence and queued as a proposal.
 2. **Session-end extraction** — agents invoke the `session_end_extraction` MCP prompt and
    call `memory_propose` with falsifiable, evidence-backed claims.
 3. **Review** — `dim review` walks you through the queue conversationally:

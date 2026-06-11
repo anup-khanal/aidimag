@@ -144,6 +144,22 @@ async function sync(opts) {
   refreshSyncStatus();
 }
 
+/**
+ * "aidimag: Login" — runs `dim login` in an integrated terminal so the user
+ * sees the device code while the browser approval page opens. Sync status
+ * refreshes on window focus (already wired), which catches the saved token.
+ */
+function login() {
+  const root = repoRoot();
+  if (!root) {
+    vscode.window.showErrorMessage("aidimag: open a folder with an .aidimag/ directory first.");
+    return;
+  }
+  const term = vscode.window.createTerminal({ name: "aidimag login", cwd: root });
+  term.show();
+  term.sendText(`${cfg().dim} login`);
+}
+
 // ---------------------------------------------------------------- auto-sync
 
 let autoSyncTimer = null;
@@ -192,8 +208,8 @@ async function refreshSyncStatus() {
       : "\nNot synced this session";
     if (tokenMissing) {
       syncStatusItem.text = `☁ ${brain} ⚠`;
-      syncStatusItem.tooltip = `aidimag: linked to brain '${brain}' but NO TOKEN stored — click to open the dashboard and add one${lastTxt}`;
-      syncStatusItem.command = "aidimag.openDashboard";
+      syncStatusItem.tooltip = `aidimag: linked to brain '${brain}' but NO TOKEN stored — click to log this device in (browser approval)${lastTxt}`;
+      syncStatusItem.command = "aidimag.login";
       syncStatusItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
     } else if (lastSync && !lastSync.ok) {
       syncStatusItem.text = `☁ ${brain} ✗`;
@@ -242,6 +258,7 @@ function activate(context) {
     vscode.commands.registerCommand("aidimag.openDashboard", openDashboard),
     vscode.commands.registerCommand("aidimag.verify", verify),
     vscode.commands.registerCommand("aidimag.sync", sync),
+    vscode.commands.registerCommand("aidimag.login", login),
     statusItem,
     syncStatusItem
   );
