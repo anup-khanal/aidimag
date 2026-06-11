@@ -37,8 +37,9 @@ dim status
 | `dim forget <id>` | Delete a memory |
 | `dim ui` | Web dashboard covering every workflow — add/search memories, review queue, verify, mine, sync, cloud link, API keys, memory graph (`-p <port>`, default 4517) |
 | `dim serve` | Run a self-hosted team sync server (`--token`, `--db`, `--port`) |
+| `dim login` / `dim logout` | Device-code login: approve this machine in the browser, token saved locally |
 | `dim cloud link\|status\|unlink` | Bind the repo to a sync server brain |
-| `dim sync` | Push/pull memory with the linked team server |
+| `dim sync` | Push/pull memory with the linked team server (also runs automatically after writes) |
 | `dim keys create\|list\|revoke` | Mint/revoke brain-scoped API keys (admin token) |
 | `dim mcp` | Run the MCP server (stdio) |
 
@@ -101,6 +102,17 @@ dim sync
 
 - **Local-first**: agents always read the local SQLite replica; `dim sync` exchanges
   changes (last-writer-wins by `updated_at`; deletions propagate via tombstones).
+  Sync also runs **automatically** (debounced, 30s) after `remember`, `review`,
+  `verify`, `refute`, and `forget` — disable with `AIDIMAG_AUTO_SYNC=off`.
+- **Device login (`dim login`)**: instead of pasting tokens, run `dim login` — the CLI
+  shows a short code, opens the server's approval page in your browser, and an existing
+  credential (admin token or member key) approves the device. The minted account token
+  (`aidimag_at_…`) inherits the approver's brain scope and is revocable via `dim keys revoke`.
+  This is the same device flow the hosted SaaS will drive with GitHub OAuth.
+- **Event log + consensus**: every memory lifecycle change (create/status/evidence/
+  verification) is recorded in a local append-only event log and shipped on sync.
+  `GET /v1/consensus?brain=…` aggregates verification reports across machines —
+  "N machines confirm this memory PASSes at HEAD sha X".
 - `.aidimag/config.json` (server + brain name, **no secrets**) is committed to git, so
   teammates onboard with just `dim init && dim cloud link --token … && dim sync`.
   Tokens live in `~/.aidimag/credentials.json` (or `AIDIMAG_API_KEY`).
@@ -151,5 +163,6 @@ Semantic recall ✅ — hybrid FTS + sqlite-vec KNN with pluggable embeddings (O
 Phase 6 (team mode v1) ✅ — self-hostable sync server (`dim serve`), LWW sync with tombstones (`dim sync`).
 SaaS-ready auth ✅ — brain-scoped API keys (`dim keys`), Docker/Fly deployment (deploy/).
 VSCode extension ✅ — dashboard webview, status-bar memory health (vscode-extension/).
-Next: npm publish; hosted SaaS top layer (OAuth/billing per CLOUD_DESIGN.md).
+SaaS groundwork ✅ — `dim login`/`logout` (device-code flow), append-only event log shipped on sync, cross-machine verification consensus (`/v1/consensus`), debounced auto-sync after writes.
+Next: npm publish; hosted SaaS top layer (GitHub OAuth on the device flow, Postgres, billing per CLOUD_DESIGN.md).
 

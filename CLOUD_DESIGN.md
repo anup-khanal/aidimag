@@ -1,6 +1,9 @@
 # Phase 6 Design — aidimag Cloud (Team Memory Sync)
 
-> Status: design draft (2026-06-11). Build after npm publish + pilot validation.
+> Status: in progress (updated 2026-06-11). Self-hostable core shipped; SaaS
+> groundwork (device login, event log, consensus, auto-sync) shipped — see
+> "Implementation status" below. Remaining: hosted infra (Postgres, GitHub
+> OAuth, Stripe, hosted console).
 
 ## Architecture principle: local-first, cloud as sync — never as query path
 
@@ -79,11 +82,24 @@ dim sync                  # pulls entire team brain → instant onboarding
 
 ## New CLI surface
 ```
-dim login | logout            device OAuth
-dim cloud init|link|unlink    manage repo-brain binding
-dim sync [--push|--pull]      manual sync (auto otherwise)
-dim keys create|revoke|list   repo-scoped API keys
+dim login | logout            device OAuth                          ✅ built (device-code flow on dim serve)
+dim cloud init|link|unlink    manage repo-brain binding             ✅ link/unlink/status built (init = hosted-only)
+dim sync [--push|--pull]      manual sync (auto otherwise)          ✅ built incl. debounced auto-sync after writes
+dim keys create|revoke|list   repo-scoped API keys                  ✅ built (revoke also kills account tokens)
 ```
+
+## Implementation status (2026-06-11)
+
+| Piece | Status |
+|---|---|
+| Self-hostable sync server (`dim serve`), LWW + tombstones | ✅ shipped |
+| Brain-scoped API keys (`dim keys`) | ✅ shipped |
+| Device-code login (`dim login`/`logout`, `/v1/auth/device|approve|token`, `aidimag_at_…` account tokens with inherited brain scope) | ✅ shipped |
+| Append-only event log (local `events` table, `schema_version` + machine id per event, pushed on sync to `/v1/events`, idempotent ingest) | ✅ shipped |
+| Verification consensus (`verification_report` events anchored to HEAD sha; `GET /v1/consensus` aggregates latest report per machine) | ✅ shipped |
+| Auto-sync (debounced 30s after remember/review/verify/refute/forget; `AIDIMAG_AUTO_SYNC=off` to disable) | ✅ shipped |
+| GitHub OAuth on the approval page, Postgres, Stripe billing, hosted console | ⏳ hosted-infra phase (after npm publish) |
+| Event-sourced *replication* (events as the sync truth, replacing row snapshots) | ⏳ later — snapshots remain the replication mechanism; events are the audit/consensus layer |
 
 ## Monetization mapping
 - Free OSS: everything local (today's product)

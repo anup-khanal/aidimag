@@ -39,6 +39,15 @@ function fail(msg: string): never {
   process.exit(1);
 }
 
+/** Debounced best-effort sync after local mutations (no-op unless cloud-linked). */
+async function autoSync(store: MemoryStore): Promise<void> {
+  const root = findRepoRoot();
+  if (!root) return;
+  const { maybeAutoSync } = await import("../sync/client.js");
+  const r = await maybeAutoSync(store, root);
+  if (r) console.log(`(auto-synced: pushed ${r.pushed}, pulled ${r.pulled}, events ${r.eventsPushed})`);
+}
+
 function printMemory(m: MemoryEntry, verbose = false): void {
   const statusIcon =
     m.status === "VERIFIED" ? "✓" : m.status === "REFUTED" ? "✗" : m.status === "STALE" ? "~" : "?";
@@ -126,6 +135,7 @@ program
     const entry = store.write({ kind, claim, paths: opts.path, symbols: opts.symbol, evidence, createdBy: "human" });
     printMemory(entry, true);
     await indexMemory(store, entry).catch(() => false);
+    await autoSync(store);
     store.close();
   });
 
@@ -227,7 +237,7 @@ program
   .argument("[action]", "list | approve | reject", "list")
   .argument("[id]", "Proposal id (8-char prefix ok); 'all' with approve/reject applies to every pending proposal")
   .option("-n, --limit <n>", "Max proposals to list", "50")
-  .action((action: string, id: string | undefined, opts) => {
+  .action(async (action: string, id: string | undefined, opts) => {
     const store = MemoryStore.open();
     switch (action) {
       case "list": {
@@ -262,6 +272,7 @@ program
       default:
         fail(`unknown action '${action}'. Use: list | approve | reject`);
     }
+    if (action === "approve" || action === "reject") await autoSync(store);
     store.close();
   });
 
@@ -271,7 +282,7 @@ program
   .option("-i, --id <ids...>", "Only verify specific memory ids (prefix ok)")
   .option("-d, --deep", "Also run expensive evidence (TEST_RESULT, EXEC_TRACE)")
   .option("-q, --quiet", "Only print status changes (for git hooks)")
-  .action((opts) => {
+  .action(async (opts) => {
     const root = findRepoRoot() ?? fail("not inside a repo");
     const store = MemoryStore.open(root);
     const report = verifyAll(store, root, { ids: opts.id, deep: Boolean(opts.deep) });
@@ -293,6 +304,7 @@ program
         `\nchecked ${report.checked}: ${report.verified} verified, ${report.stale} stale, ${report.decayed} decayed, ${report.unchanged} unchanged`
       );
     }
+    await autoSync(store);
     store.close();
     if (report.stale > 0) process.exitCode = 2; // signal staleness to scripts
   });
@@ -314,12 +326,13 @@ program
   .description("Mark a memory REFUTED (kept as negative knowledge, unlike forget)")
   .argument("<id>", "Memory id (full or 8-char prefix)")
   .option("-s, --superseded-by <id>", "Id of a newer memory replacing it")
-  .action((id: string, opts) => {
+  .action(async (id: string, opts) => {
     const store = MemoryStore.open();
     const match = store.list(1000).find((m) => m.id === id || m.id.startsWith(id));
     if (!match) fail(`no memory matching id '${id}'`);
     store.refute(match.id, opts.supersededBy);
     console.log(`✗ refuted ${match.id.slice(0, 8)}: "${match.claim}"`);
+    await autoSync(store);
     store.close();
   });
 
@@ -327,13 +340,14 @@ program
   .command("forget")
   .description("Delete a memory permanently (prefer refuting via agents)")
   .argument("<id>", "Memory id (full or 8-char prefix)")
-  .action((id: string) => {
+  .action(async (id: string) => {
     const store = MemoryStore.open();
     // allow prefix match
     const match = store.list(1000).find((m) => m.id === id || m.id.startsWith(id));
     if (!match) fail(`no memory matching id '${id}'`);
     store.forget(match.id);
     console.log(`Forgot memory ${match.id}: "${match.claim}"`);
+    await autoSync(store);
     store.close();
   });
 
@@ -410,6 +424,43 @@ program
   });
 
 program
+  .command("login")
+  .description("Log this device in to the sync server (device-code flow, approved in the browser)")
+  .option("-s, --server <url>", "Server URL (defaults to the repo's linked server)")
+  .option("--no-open", "Don't open the browser automatically")
+  .action(async (opts) => {
+    const { readCloudConfig, startDeviceLogin, pollDeviceLogin } = await import("../sync/client.js");
+    const root = findRepoRoot();
+    const server: string | undefined =
+      (opts.server as string | undefined)?.replace(/\/$/, "") ?? (root ? readCloudConfig(root)?.server : undefined);
+    if (!server) fail("no server: pass --server <url> or link the repo with `dim cloud link` first");
+    const start = await startDeviceLogin(server);
+    const approveUrl = `${start.verification_uri}?code=${encodeURIComponent(start.user_code)}`;
+    console.log(`\nTo approve this device, open:\n\n  ${approveUrl}\n\nand confirm the code: ${start.user_code}\n`);
+    if (opts.open) {
+      const { exec } = await import("node:child_process");
+      const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+      exec(`${opener} "${approveUrl}"`);
+    }
+    console.log("Waiting for approval…");
+    const { brain } = await pollDeviceLogin(server, start);
+    console.log(`✓ Logged in to ${server} (scope: ${brain ?? "all brains"}). Token saved to ~/.aidimag/credentials.json.`);
+  });
+
+program
+  .command("logout")
+  .description("Remove this device's stored token for the sync server")
+  .option("-s, --server <url>", "Server URL (defaults to the repo's linked server)")
+  .action(async (opts) => {
+    const { readCloudConfig, removeToken } = await import("../sync/client.js");
+    const root = findRepoRoot();
+    const server: string | undefined =
+      (opts.server as string | undefined)?.replace(/\/$/, "") ?? (root ? readCloudConfig(root)?.server : undefined);
+    if (!server) fail("no server: pass --server <url> or link the repo with `dim cloud link` first");
+    console.log(removeToken(server) ? `✓ Logged out of ${server}.` : `No stored token for ${server}.`);
+  });
+
+program
   .command("sync")
   .description("Sync this repo's memory with the linked team server (push + pull)")
   .action(async () => {
@@ -418,7 +469,9 @@ program
     const { sync } = await import("../sync/client.js");
     try {
       const r = await sync(store, root);
-      console.log(`pushed ${r.pushed}, pulled ${r.pulled} (applied ${r.applied}, kept ${r.skippedOlder} newer local)`);
+      console.log(
+        `pushed ${r.pushed}, pulled ${r.pulled} (applied ${r.applied}, kept ${r.skippedOlder} newer local), events ${r.eventsPushed}`
+      );
     } catch (err) {
       fail(err instanceof Error ? err.message : String(err));
     } finally {

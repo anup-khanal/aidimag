@@ -6,7 +6,8 @@
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir, hostname } from "node:os";
 import path from "node:path";
 import { SCHEMA_SQL, SCHEMA_VERSION, MIGRATIONS } from "./schema.js";
 import type {
@@ -43,6 +44,52 @@ export function dbPathFor(repoRoot: string): string {
   return path.join(repoRoot, AIDIMAG_DIR, DB_FILE);
 }
 
+/**
+ * Stable per-machine id (CLOUD_DESIGN: "3 of 4 machines confirm…").
+ * Persisted once in ~/.aidimag/machine-id; hostname-prefixed for readability.
+ */
+export function machineId(): string {
+  const p = path.join(homedir(), ".aidimag", "machine-id");
+  try {
+    const existing = readFileSync(p, "utf8").trim();
+    if (existing) return existing;
+  } catch {
+    // first run
+  }
+  const id = `${hostname()}-${randomUUID().slice(0, 8)}`;
+  try {
+    mkdirSync(path.dirname(p), { recursive: true });
+    writeFileSync(p, id + "\n", { mode: 0o600 });
+  } catch {
+    // unwritable home — fall back to a session-stable value
+  }
+  return id;
+}
+
+/** Event types shipped to the sync server (see schema.ts events table). */
+export type MemoryEventType =
+  | "memory_created"
+  | "status_changed"
+  | "evidence_result"
+  | "refuted"
+  | "superseded"
+  | "forgotten"
+  | "proposal_created"
+  | "proposal_approved"
+  | "proposal_rejected"
+  | "verification_report";
+
+export interface MemoryEvent {
+  seq: number;
+  id: string;
+  type: MemoryEventType;
+  memoryId: string | null;
+  payload: Record<string, unknown>;
+  machine: string;
+  schemaVersion: number;
+  createdAt: string;
+}
+
 interface MemoryRow {
   id: string;
   kind: MemoryKind;
@@ -61,6 +108,7 @@ export class MemoryStore {
   readonly dbPath: string;
   /** true if the sqlite-vec extension loaded (vector search available) */
   readonly vecAvailable: boolean;
+  private readonly machine: string = machineId();
 
   constructor(dbPath: string) {
     this.dbPath = dbPath;
@@ -104,6 +152,42 @@ export class MemoryStore {
     return new MemoryStore(file);
   }
 
+  // ---------------------------------------------------------------- event log (SaaS sync model)
+
+  /** Append an event to the local log (shipped to the sync server on `dim sync`). */
+  recordEvent(type: MemoryEventType, memoryId: string | null, payload: Record<string, unknown> = {}): void {
+    this.db
+      .prepare(
+        `INSERT INTO events (id, type, memory_id, payload, machine, schema_version, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(randomUUID(), type, memoryId, JSON.stringify(payload), this.machine, SCHEMA_VERSION, new Date().toISOString());
+  }
+
+  /** Events not yet pushed to the sync server, oldest first. */
+  unsyncedEvents(limit = 500): MemoryEvent[] {
+    const rows = this.db
+      .prepare("SELECT * FROM events WHERE synced = 0 ORDER BY seq ASC LIMIT ?")
+      .all(limit) as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      seq: r.seq as number,
+      id: r.id as string,
+      type: r.type as MemoryEventType,
+      memoryId: (r.memory_id as string | null) ?? null,
+      payload: JSON.parse((r.payload as string) || "{}"),
+      machine: r.machine as string,
+      schemaVersion: r.schema_version as number,
+      createdAt: r.created_at as string,
+    }));
+  }
+
+  markEventsSynced(seqs: number[]): void {
+    if (!seqs.length) return;
+    const stmt = this.db.prepare("UPDATE events SET synced = 1 WHERE seq = ?");
+    const tx = this.db.transaction(() => seqs.forEach((s) => stmt.run(s)));
+    tx();
+  }
+
   // ---------------------------------------------------------------- write
 
   write(input: MemoryWriteInput): MemoryEntry {
@@ -140,6 +224,11 @@ export class MemoryStore {
       for (const ev of input.evidence ?? []) {
         evStmt.run(randomUUID(), id, ev.type, ev.payload);
       }
+      this.recordEvent("memory_created", id, {
+        kind: input.kind,
+        claim: input.claim,
+        createdBy: input.createdBy ?? "human",
+      });
     });
     insert();
 
@@ -356,6 +445,7 @@ export class MemoryStore {
       if (err instanceof Error && /UNIQUE constraint/.test(err.message)) return null;
       throw err;
     }
+    this.recordEvent("proposal_created", id, { kind: input.kind, claim: input.claim, source: input.source });
     return this.getProposal(id);
   }
 
@@ -389,6 +479,7 @@ export class MemoryStore {
     this.db
       .prepare("UPDATE proposals SET status = 'APPROVED', memory_id = ?, updated_at = ? WHERE id = ?")
       .run(entry.id, new Date().toISOString(), p.id);
+    this.recordEvent("proposal_approved", p.id, { memoryId: entry.id });
     return entry;
   }
 
@@ -399,6 +490,7 @@ export class MemoryStore {
     this.db
       .prepare("UPDATE proposals SET status = 'REJECTED', updated_at = ? WHERE id = ?")
       .run(new Date().toISOString(), p.id);
+    this.recordEvent("proposal_rejected", p.id);
     return { ...p, status: "REJECTED" };
   }
 
@@ -450,6 +542,7 @@ export class MemoryStore {
       .prepare("UPDATE memories SET status = ?, verified_at = COALESCE(?, verified_at), updated_at = ? WHERE id = ?")
       .run(status, verifiedAt, now, id);
     if (res.changes === 0) throw new Error(`No memory with id ${id}`);
+    this.recordEvent("status_changed", id, { status });
   }
 
   setConfidence(id: string, confidence: number): void {
@@ -472,6 +565,17 @@ export class MemoryStore {
     this.db
       .prepare("UPDATE memories SET updated_at = ? WHERE id = (SELECT memory_id FROM evidence WHERE id = ?)")
       .run(lastRun, evidenceId);
+    const owner = this.db
+      .prepare("SELECT memory_id, type FROM evidence WHERE id = ?")
+      .get(evidenceId) as { memory_id: string; type: string } | undefined;
+    if (owner) {
+      this.recordEvent("evidence_result", owner.memory_id, {
+        evidenceId,
+        evidenceType: owner.type,
+        result,
+        at: lastRun,
+      });
+    }
   }
 
   refute(id: string, supersededBy?: string): void {
@@ -479,6 +583,8 @@ export class MemoryStore {
       .prepare("UPDATE memories SET status = 'REFUTED', superseded_by = ?, updated_at = ? WHERE id = ?")
       .run(supersededBy ?? null, new Date().toISOString(), id);
     if (res.changes === 0) throw new Error(`No memory with id ${id}`);
+    this.recordEvent("refuted", id, supersededBy ? { supersededBy } : {});
+    if (supersededBy) this.recordEvent("superseded", id, { by: supersededBy });
   }
 
   forget(id: string): void {
@@ -491,6 +597,7 @@ export class MemoryStore {
       this.db
         .prepare("INSERT OR REPLACE INTO tombstones (id, tbl, deleted_at) VALUES (?, 'memories', ?)")
         .run(id, new Date().toISOString());
+      this.recordEvent("forgotten", id);
     });
     tx();
   }

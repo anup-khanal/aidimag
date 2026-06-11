@@ -4,3 +4,4 @@ dist/
 .aidimag/memory.db*
 .DS_Store
 
+.idea/

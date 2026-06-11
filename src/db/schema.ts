@@ -3,7 +3,7 @@
  * FTS5 powers Phase 1 search; sqlite-vec embeddings arrive in Phase 2.
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** Idempotent migrations for pre-existing DBs (failures = already applied). */
 export const MIGRATIONS: string[] = [
@@ -115,5 +115,26 @@ CREATE INDEX IF NOT EXISTS idx_memories_status ON memories(status);
 CREATE INDEX IF NOT EXISTS idx_memories_kind   ON memories(kind);
 CREATE INDEX IF NOT EXISTS idx_scopes_value    ON memory_scopes(value);
 CREATE INDEX IF NOT EXISTS idx_evidence_memory ON evidence(memory_id);
+
+-- SaaS groundwork: local append-only event log (CLOUD_DESIGN sync model).
+-- Every memory-lifecycle change is recorded here and shipped to the sync
+-- server on \`dim sync\`; the server aggregates evidence_result events from
+-- multiple machines into consensus confidence.
+CREATE TABLE IF NOT EXISTS events (
+  seq            INTEGER PRIMARY KEY AUTOINCREMENT,
+  id             TEXT NOT NULL UNIQUE,          -- uuid (idempotent server ingest)
+  type           TEXT NOT NULL CHECK (type IN (
+                   'memory_created','status_changed','evidence_result',
+                   'refuted','superseded','forgotten',
+                   'proposal_created','proposal_approved','proposal_rejected',
+                   'verification_report')),
+  memory_id      TEXT,                          -- subject memory/proposal id
+  payload        TEXT NOT NULL DEFAULT '{}',    -- JSON event body
+  machine        TEXT NOT NULL,                 -- stable per-machine id
+  schema_version INTEGER NOT NULL,
+  created_at     TEXT NOT NULL,
+  synced         INTEGER NOT NULL DEFAULT 0     -- 1 once pushed to the server
+);
+CREATE INDEX IF NOT EXISTS idx_events_synced ON events(synced, seq);
 `;
 

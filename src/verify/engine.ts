@@ -11,6 +11,7 @@
  *     until explicitly superseded)
  */
 
+import { execFileSync } from "node:child_process";
 import { runEvidence, type RunOptions, type RunOutcome } from "./runners.js";
 import type { MemoryStore } from "../db/store.js";
 import type { MemoryEntry, MemoryStatus } from "../types.js";
@@ -159,6 +160,28 @@ export function verifyAll(
   }
 
   const results = memories.map((m) => verifyMemory(store, m, repoRoot, { deep: opts.deep }));
+
+  // CLOUD_DESIGN consensus input: one verification_report event per run,
+  // anchored to the repo HEAD so the server can aggregate "N machines
+  // confirm memory X PASSes at sha Y".
+  let head: string | null = null;
+  try {
+    head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
+  } catch {
+    // not a git repo — report without an anchor
+  }
+  for (const r of results) {
+    const ran = r.outcomes.filter((o) => o.result === "PASS" || o.result === "FAIL");
+    if (!ran.length) continue; // nothing machine-checkable ran; no report
+    store.recordEvent("verification_report", r.memoryId, {
+      head,
+      status: r.after,
+      confidence: r.confidenceAfter,
+      pass: ran.every((o) => o.result === "PASS"),
+      deep: Boolean(opts.deep),
+    });
+  }
+
   return {
     checked: results.length,
     verified: results.filter((r) => r.after === "VERIFIED").length,

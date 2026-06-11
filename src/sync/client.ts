@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import type { MemoryStore } from "../db/store.js";
 import type { MemoryEntry, Proposal } from "../types.js";
-import type { SyncItem } from "./server.js";
+import type { SyncItem, EventItem } from "./server.js";
 
 export interface CloudConfig {
   server: string;
@@ -70,6 +70,58 @@ export function saveToken(server: string, token: string): void {
   writeFileSync(p, JSON.stringify(creds, null, 2) + "\n", { mode: 0o600 });
 }
 
+export function removeToken(server: string): boolean {
+  const p = credentialsPath();
+  if (!existsSync(p)) return false;
+  const creds = JSON.parse(readFileSync(p, "utf8"));
+  if (!(server in creds)) return false;
+  delete creds[server];
+  writeFileSync(p, JSON.stringify(creds, null, 2) + "\n", { mode: 0o600 });
+  return true;
+}
+
+// ---------------------------------------------------------------- device-flow login (dim login)
+
+export interface DeviceStart {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  interval: number;
+  expires_in: number;
+}
+
+/** Begin a device-code login: server hands back a user code + approval URL. */
+export async function startDeviceLogin(server: string): Promise<DeviceStart> {
+  const res = await fetch(`${server}/v1/auth/device`, { method: "POST" });
+  if (!res.ok) {
+    throw new Error(
+      res.status === 404
+        ? `server does not support device login (upgrade it to this aidimag version)`
+        : `device login: HTTP ${res.status} ${await res.text()}`
+    );
+  }
+  return (await res.json()) as DeviceStart;
+}
+
+/** Poll until the device is approved in the browser. Saves the token on success. */
+export async function pollDeviceLogin(server: string, start: DeviceStart): Promise<{ token: string; brain: string | null }> {
+  const deadline = Date.now() + start.expires_in * 1000;
+  for (;;) {
+    if (Date.now() > deadline) throw new Error("login timed out — run `dim login` again");
+    await new Promise((r) => setTimeout(r, start.interval * 1000));
+    const res = await fetch(`${server}/v1/auth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_code: start.device_code }),
+    });
+    if (res.status === 428) continue; // authorization_pending
+    if (!res.ok) throw new Error(`login failed: HTTP ${res.status} ${await res.text()}`);
+    const out = (await res.json()) as { token: string; brain: string | null };
+    saveToken(server, out.token);
+    return out;
+  }
+}
+
 // ---------------------------------------------------------------- sync
 
 export interface SyncResult {
@@ -77,6 +129,8 @@ export interface SyncResult {
   pulled: number;
   applied: number;
   skippedOlder: number;
+  /** lifecycle events shipped to the server (consensus input) */
+  eventsPushed: number;
 }
 
 async function api<T>(cfg: CloudConfig, token: string, pathAndQuery: string, init?: RequestInit): Promise<T> {
@@ -134,6 +188,34 @@ export async function sync(store: MemoryStore, repoRoot: string): Promise<SyncRe
   }
   store.setMeta(LAST_PUSH_KEY, new Date().toISOString());
 
+  // ---- push events (append-only lifecycle log → server-side consensus)
+  let eventsPushed = 0;
+  try {
+    for (;;) {
+      const batch = store.unsyncedEvents(500);
+      if (!batch.length) break;
+      const events: EventItem[] = batch.map((e) => ({
+        id: e.id,
+        type: e.type,
+        memoryId: e.memoryId,
+        payload: e.payload,
+        machine: e.machine,
+        schemaVersion: e.schemaVersion,
+        createdAt: e.createdAt,
+      }));
+      await api<{ accepted: number }>(cfg, token, `/v1/events?brain=${encodeURIComponent(cfg.brain)}`, {
+        method: "POST",
+        body: JSON.stringify({ events }),
+      });
+      store.markEventsSynced(batch.map((e) => e.seq));
+      eventsPushed += batch.length;
+      if (batch.length < 500) break;
+    }
+  } catch (err) {
+    // older server without /v1/events — events stay queued locally, retry next sync
+    if (!(err instanceof Error && /HTTP 404/.test(err.message))) throw err;
+  }
+
   // ---- pull
   const cursor = parseInt(store.getMeta(CURSOR_KEY) ?? "0", 10);
   const pullRes = await api<{ items: SyncItem[]; seq: number }>(
@@ -181,6 +263,33 @@ export async function sync(store: MemoryStore, repoRoot: string): Promise<SyncRe
   }
   store.setMeta(CURSOR_KEY, String(pullRes.seq));
 
-  return { pushed, pulled: pullRes.items.length, applied, skippedOlder };
+  return { pushed, pulled: pullRes.items.length, applied, skippedOlder, eventsPushed };
+}
+
+// ---------------------------------------------------------------- auto-sync (debounced)
+
+const AUTO_SYNC_DEBOUNCE_MS = 30_000;
+const AUTO_SYNC_LAST_KEY = "sync_last_auto_at";
+
+/**
+ * Best-effort background sync after local mutations (CLOUD_DESIGN: "runs
+ * automatically (debounced) after remember / review / verify").
+ * No-ops when the repo isn't cloud-linked, no token is stored, the last
+ * auto-sync was <30s ago, or AIDIMAG_AUTO_SYNC=off. Never throws.
+ */
+export async function maybeAutoSync(store: MemoryStore, repoRoot: string): Promise<SyncResult | null> {
+  if ((process.env.AIDIMAG_AUTO_SYNC ?? "").toLowerCase() === "off") return null;
+  const cfg = readCloudConfig(repoRoot);
+  if (!cfg) return null;
+  if (!getToken(cfg.server)) return null;
+  const last = store.getMeta(AUTO_SYNC_LAST_KEY);
+  if (last && Date.now() - new Date(last).getTime() < AUTO_SYNC_DEBOUNCE_MS) return null;
+  try {
+    const r = await sync(store, repoRoot);
+    store.setMeta(AUTO_SYNC_LAST_KEY, new Date().toISOString());
+    return r;
+  } catch {
+    return null; // offline / server down — local-first means we just carry on
+  }
 }
 
