@@ -185,13 +185,63 @@ Principles:
 - Manual prompting is the *fallback*, not the primary path — the best prompt
   is the one the branch name already answered.
 
+## Branch naming enforcement (admin-defined convention)
+
+Teams use wildly different ticket formats (`ABC123`, `abcd-12234`, `1234-ab`).
+The admin defines the convention once, committed to the repo; every member's
+hooks enforce it automatically after `dim init` — no per-dev setup.
+
+### Config (committed, no secrets) — `.aidimag/config.json`
+
+```json
+{
+  "tickets": {
+    "provider": "jira",
+    "pattern": "[A-Z][A-Z0-9]+-\\d+",
+    "branch": {
+      "pattern": "^(feature|bugfix|hotfix|chore)/[A-Z][A-Z0-9]+-\\d+(-[a-z0-9-]+)?$",
+      "exempt": ["main", "develop", "release/.*"],
+      "enforce": "push"        // "push" (block) | "warn" | "off"
+    }
+  }
+}
+```
+
+### Enforcement layers (honest about what git allows)
+
+Git has **no client-side hook that can prevent branch creation** —
+`git branch` / `git checkout -b` fires nothing blockable. So enforcement is
+layered:
+
+| Layer | Blocks? | Mechanism |
+|---|---|---|
+| Creation (local) | warn only | `post-checkout` hook (already installed): on branch-creation checkouts, validate the name; print a friendly warning + the rename command (`git branch -m feature/XXX-2100-…`) |
+| **Push** | **✅ yes** | new `pre-push` hook: refuse to push refs whose branch name fails the pattern (unless exempt). A branch that can't be pushed is effectively unusable → compliance without blocking local experimentation |
+| Server | ✅ yes | the same regex applied as GitHub rulesets / GitLab push rules / Bitbucket branch restrictions — catches `--no-verify` bypassers. `dim ticket branch-rule --print github` emits the config to paste |
+| Creation UX (carrot) | n/a | `dim branch XXX-2100`: fetches the ticket title via TicketProvider and creates `feature/XXX-2100-serialize-token-refresh` — correctly formed, less typing than doing it by hand |
+
+Design choices:
+- **Local creation stays free** (scratch branches, experiments); the gate sits
+  at the team boundary (push). `enforce: "warn"` mode for gradual rollout.
+- Friendly language per the NL principle:
+  > 🌿 `my-fix` doesn't match the team's branch convention
+  > (`feature/<TICKET>-<desc>`). Rename with:
+  > `git branch -m feature/XXX-2100-my-fix` — or next time:
+  > `dim branch XXX-2100`
+- The branch pattern **embeds the ticket pattern**, so a conforming branch
+  name always yields an extractable ticket id — closing the loop with capture:
+  enforced convention ⇒ reliable `TICKET_REF` on every proposal mined from
+  that branch's commits.
+- Exempt list covers trunk/release branches and CI bots.
+
 ## Phasing
 
 | Phase | Scope |
 |---|---|
 | T1 | `TicketProvider` interface + ticket-id extraction in the post-commit miner (id stored on proposals; no network) |
+| T1.5 | Branch convention enforcement: `pre-push` + `post-checkout` validation against the committed pattern (`enforce: warn\|push\|off`); `dim branch <ticket-id>` helper (works without a provider — id only; with a provider, adds the title slug) |
 | T2 | JiraProvider + GitHubProvider, `dim ticket connect/status/show`, lazy enrichment at review time, `TICKET_REF` evidence |
-| T3 | RemoteProvider via sync server (team-shared credentials, caching); dashboard config UI |
+| T3 | RemoteProvider via sync server (team-shared credentials, caching); dashboard config UI; `dim ticket branch-rule --print github\|gitlab` for server-side rule generation |
 | T4 | HttpProvider contract doc (public, versioned); Linear + others as demand shows |
 | T5 | Conversational review (`dim review` interactive rewording); agent-side session-end ticket awareness |
 
@@ -210,4 +260,8 @@ Principles:
    list in config.
 5. Rate limits on RemoteProvider: per-brain caching TTL? (Jira default ~50K
    req/day is generous; GitHub 5K/h is not.)
+6. Branch enforcement vs. existing repos: rolling out `enforce: "push"` on a
+   repo with hundreds of legacy branch names — grandfather existing branches
+   (only validate branches created after the config landed)? `warn` period
+   first by convention?
 
