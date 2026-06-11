@@ -14,11 +14,17 @@
 import { Command } from "commander";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { MemoryStore, findRepoRoot, dbPathFor, AIDIMAG_DIR } from "../db/store.js";
 import { mineCommits } from "../capture/commit-miner.js";
 import { verifyAll } from "../verify/engine.js";
 import { installGitHooks } from "../verify/hooks.js";
 import type { EvidenceType, MemoryEntry, MemoryKind, Proposal } from "../types.js";
+
+/** Version comes from package.json — single source of truth. */
+const PKG_VERSION: string = JSON.parse(
+  readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../package.json"), "utf8")
+).version;
 
 const program = new Command();
 
@@ -51,7 +57,7 @@ function printMemory(m: MemoryEntry, verbose = false): void {
 program
   .name("dim")
   .description("aidimag — persistent, verified memory for AI coding agents")
-  .version("0.1.0");
+  .version(PKG_VERSION, "-v, --version", "print the aidimag version");
 
 program
   .command("init")

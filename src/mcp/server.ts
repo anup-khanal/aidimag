@@ -10,10 +10,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { MemoryStore, findRepoRoot } from "../db/store.js";
 import { SESSION_END_PROMPT, proposalSummaryLine } from "../capture/session-extraction.js";
 import { verifyAll } from "../verify/engine.js";
 import type { MemoryEntry } from "../types.js";
+
+const PKG_VERSION: string = JSON.parse(
+  readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../package.json"), "utf8")
+).version;
 
 const KINDS = [
   "DECISION",
@@ -58,7 +65,7 @@ function openStore(): MemoryStore {
 }
 
 async function main() {
-  const server = new McpServer({ name: "aidimag", version: "0.1.0" });
+  const server = new McpServer({ name: "aidimag", version: PKG_VERSION });
   const store = openStore();
 
   server.tool(
