@@ -463,14 +463,18 @@ export class MemoryStore {
     return rows.map((r) => this.hydrateProposal(r));
   }
 
-  /** Approve a proposal: creates the real MemoryEntry and marks the proposal APPROVED. */
-  approveProposal(id: string): MemoryEntry {
+  /**
+   * Approve a proposal: creates the real MemoryEntry and marks the proposal APPROVED.
+   * `overrides.claim` lets the reviewer reword the claim before it becomes memory
+   * (conversational review) — provenance still points at the original proposal.
+   */
+  approveProposal(id: string, overrides?: { claim?: string }): MemoryEntry {
     const p = this.findProposalByPrefix(id);
     if (!p) throw new Error(`No proposal matching id '${id}'`);
     if (p.status !== "PENDING") throw new Error(`Proposal ${p.id} is already ${p.status}`);
     const entry = this.write({
       kind: p.kind,
-      claim: p.claim,
+      claim: overrides?.claim?.trim() || p.claim,
       paths: p.paths,
       symbols: p.symbols,
       evidence: p.evidence,

@@ -31,7 +31,7 @@ dim status
 | `dim reindex` | Build/refresh semantic embeddings for all memories |
 | `dim status` | Memory store summary (incl. pending proposals) |
 | `dim mine` | Mine git history for memory candidates (`--full` to rescan all) |
-| `dim review [approve\|reject] [id\|all]` | Review the proposal queue |
+| `dim review [approve\|reject] [id\|all]` | Review the proposal queue — plain `dim review` opens a conversational walkthrough (keep / reword / drop / skip per proposal) |
 | `dim verify` | Re-run evidence, update statuses (`--deep` for tests/exec, `-q` for hooks, `-i <id>` to scope; exit 2 if anything went stale) |
 | `dim log` | Recent memories |
 | `dim forget <id>` | Delete a memory |
@@ -55,8 +55,9 @@ Nothing enters active memory without human approval:
    Each candidate is anchored with `COMMIT_REF` evidence and queued as a proposal.
 2. **Session-end extraction** — agents invoke the `session_end_extraction` MCP prompt and
    call `memory_propose` with falsifiable, evidence-backed claims.
-3. **Review** — `dim review` lists the queue; `approve` materializes a real memory,
-   `reject` discards (dedupe prevents re-proposal of the same claim).
+3. **Review** — `dim review` walks you through the queue conversationally:
+   keep, reword before saving, drop, or skip each proposal (`list`/`approve`/`reject`
+   subcommands remain for scripting; dedupe prevents re-proposal of rejected claims).
 
 ## Verification (the wedge)
 

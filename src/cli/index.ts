@@ -133,7 +133,14 @@ program
     });
     const store = MemoryStore.open(process.cwd(), { create: true });
     const entry = store.write({ kind, claim, paths: opts.path, symbols: opts.symbol, evidence, createdBy: "human" });
+    console.log("🧠 Got it — I'll remember:");
     printMemory(entry, true);
+    if (!evidence?.length) {
+      console.log(
+        `\nTip: claims with evidence re-verify themselves as the code evolves —\n` +
+          `     e.g. -e "STATIC_CHECK:grep -q something src/file.ts"`
+      );
+    }
     await indexMemory(store, entry).catch(() => false);
     await autoSync(store);
     store.close();
@@ -208,6 +215,93 @@ function printProposal(p: Proposal): void {
   if (p.rationale) console.log(`    rationale: ${p.rationale}`);
 }
 
+/**
+ * Conversational review: walk the queue one proposal at a time —
+ * keep / reword / drop / skip. The human gate, made friendly.
+ */
+async function interactiveReview(store: MemoryStore): Promise<{ kept: number; rejected: number }> {
+  const pending = store.listProposals("PENDING", 1000);
+  if (pending.length === 0) {
+    console.log("✨ Nothing waiting on you — the review queue is empty.");
+    return { kept: 0, rejected: 0 };
+  }
+  const { createInterface } = await import("node:readline");
+  // Line-buffering prompt instead of readline/promises: lines arriving between
+  // questions (piped/scripted input) are queued, not dropped.
+  const rl = createInterface({ input: process.stdin });
+  const queued: string[] = [];
+  const waiters: Array<(s: string) => void> = [];
+  let closed = false;
+  rl.on("line", (l) => {
+    const w = waiters.shift();
+    if (w) w(l);
+    else queued.push(l);
+  });
+  rl.on("close", () => {
+    closed = true;
+    while (waiters.length) waiters.shift()!("q");
+  });
+  const ask = (prompt: string): Promise<string> => {
+    process.stdout.write(prompt);
+    if (queued.length) return Promise.resolve(queued.shift()!);
+    if (closed) return Promise.resolve("q");
+    return new Promise((resolve) => waiters.push(resolve));
+  };
+  let kept = 0;
+  let rejected = 0;
+  let skipped = 0;
+  const plural = pending.length === 1 ? "proposal is" : "proposals are";
+  console.log(`🧠 ${pending.length} memory ${plural} waiting for your review.\n`);
+  try {
+    for (let i = 0; i < pending.length; i++) {
+      const p = pending[i];
+      const src = p.source === "commit-miner" ? `mined from commit ${p.sourceRef?.slice(0, 8) ?? "?"}` : `proposed by ${p.source}`;
+      console.log(`── ${i + 1} of ${pending.length} ── ${p.kind} · ${src}`);
+      console.log(`\n   “${p.claim}”\n`);
+      if (p.paths.length || p.symbols.length) console.log(`   applies to: ${[...p.paths, ...p.symbols].join(", ")}`);
+      if (p.evidence.length)
+        console.log(`   evidence:   ${p.evidence.map((e) => `${e.type}:${e.payload.slice(0, 60)}`).join("  ")}`);
+      if (p.rationale) console.log(`   why:        ${p.rationale}`);
+
+      const ans = (
+        await ask("\n   Keep this? [y]es · [e]dit wording · [n]o, drop it · [s]kip · [q]uit  ")
+      )
+        .trim()
+        .toLowerCase();
+
+      if (ans === "q" || ans === "quit") {
+        skipped += pending.length - i;
+        break;
+      } else if (ans === "y" || ans === "yes") {
+        const m = store.approveProposal(p.id);
+        kept++;
+        console.log(`   ✓ Remembered (${m.id.slice(0, 8)}).\n`);
+      } else if (ans === "e" || ans === "edit") {
+        const claim = (await ask("   Your wording (enter keeps the original):\n   › ")).trim();
+        const m = store.approveProposal(p.id, claim ? { claim } : undefined);
+        kept++;
+        console.log(claim ? `   ✓ Remembered with your wording (${m.id.slice(0, 8)}).\n` : `   ✓ Remembered as-is (${m.id.slice(0, 8)}).\n`);
+      } else if (ans === "n" || ans === "no") {
+        store.rejectProposal(p.id);
+        rejected++;
+        console.log("   ✗ Dropped — it won't be proposed again.\n");
+      } else {
+        skipped++;
+        console.log("   ↷ Skipped — it'll be here next time.\n");
+      }
+    }
+  } finally {
+    rl.close();
+  }
+  const bits = [
+    kept ? `${kept} remembered` : null,
+    rejected ? `${rejected} dropped` : null,
+    skipped ? `${skipped} left for later` : null,
+  ].filter(Boolean);
+  console.log(`Done — ${bits.length ? bits.join(", ") : "no changes"}.${kept ? " Run `dim verify` to put the new memories to the test." : ""}`);
+  return { kept, rejected };
+}
+
 program
   .command("mine")
   .description("Mine git history for memory candidates (queued for review, never auto-saved)")
@@ -246,19 +340,25 @@ program
 
 program
   .command("review")
-  .description("Review pending memory proposals (approve/reject)")
-  .argument("[action]", "list | approve | reject", "list")
+  .description("Review pending memory proposals — interactive walkthrough by default (list | approve | reject for scripting)")
+  .argument("[action]", "interactive (default in a terminal) | list | approve | reject")
   .argument("[id]", "Proposal id (8-char prefix ok); 'all' with approve/reject applies to every pending proposal")
   .option("-n, --limit <n>", "Max proposals to list", "50")
-  .action(async (action: string, id: string | undefined, opts) => {
+  .action(async (action: string | undefined, id: string | undefined, opts) => {
     const store = MemoryStore.open();
-    switch (action) {
+    const effective = action ?? (process.stdin.isTTY && process.stdout.isTTY ? "interactive" : "list");
+    switch (effective) {
+      case "interactive": {
+        const { kept, rejected } = await interactiveReview(store);
+        if (kept + rejected > 0) await autoSync(store);
+        break;
+      }
       case "list": {
         const pending = store.listProposals("PENDING", parseInt(opts.limit, 10));
         if (pending.length === 0) console.log("No pending proposals.");
         for (const p of pending) printProposal(p);
         if (pending.length) {
-          console.log(`\nApprove: dim review approve <id> | Reject: dim review reject <id>`);
+          console.log(`\nApprove: dim review approve <id> | Reject: dim review reject <id> | Walkthrough: dim review`);
         }
         break;
       }
@@ -283,9 +383,9 @@ program
         break;
       }
       default:
-        fail(`unknown action '${action}'. Use: list | approve | reject`);
+        fail(`unknown action '${action}'. Use: list | approve | reject (or no action for the walkthrough)`);
     }
-    if (action === "approve" || action === "reject") await autoSync(store);
+    if (effective === "approve" || effective === "reject") await autoSync(store);
     store.close();
   });
 
@@ -312,9 +412,24 @@ program
         console.log(`    ${o.type}: ${o.result} (${o.detail})`);
       }
     }
-    if (!opts.quiet || report.stale > 0) {
+    if (opts.quiet) {
+      // hook mode: machine-stable output — only speak when something went stale
+      if (report.stale > 0) {
+        console.log(
+          `\nchecked ${report.checked}: ${report.verified} verified, ${report.stale} stale, ${report.decayed} decayed, ${report.unchanged} unchanged`
+        );
+      }
+    } else if (report.checked === 0) {
+      console.log("Nothing to verify yet — store something with `dim remember` first.");
+    } else if (report.stale > 0) {
       console.log(
-        `\nchecked ${report.checked}: ${report.verified} verified, ${report.stale} stale, ${report.decayed} decayed, ${report.unchanged} unchanged`
+        `\n⚠ ${report.stale} memor${report.stale === 1 ? "y" : "ies"} went stale — the code changed under ${report.stale === 1 ? "it" : "them"}. ` +
+          `Stale memories are down-ranked in recall until they recover.\n` +
+          `(checked ${report.checked}: ${report.verified} verified, ${report.stale} stale, ${report.decayed} decayed, ${report.unchanged} unchanged)`
+      );
+    } else {
+      console.log(
+        `\n✓ All good — ${report.verified} verified, ${report.unchanged} unchanged${report.decayed ? `, ${report.decayed} aging (decayed)` : ""} of ${report.checked} checked.`
       );
     }
     await autoSync(store);
@@ -482,9 +597,11 @@ program
     const { sync } = await import("../sync/client.js");
     try {
       const r = await sync(store, root);
-      console.log(
-        `pushed ${r.pushed}, pulled ${r.pulled} (applied ${r.applied}, kept ${r.skippedOlder} newer local), events ${r.eventsPushed}`
-      );
+      const recv = r.applied
+        ? `received ${r.applied} update${r.applied === 1 ? "" : "s"} from the team`
+        : "nothing new from the team";
+      const sent = r.pushed ? `sent ${r.pushed}` : "nothing to send";
+      console.log(`☁ Synced — ${sent}, ${recv}${r.eventsPushed ? ` (+${r.eventsPushed} verification events)` : ""}.`);
     } catch (err) {
       fail(err instanceof Error ? err.message : String(err));
     } finally {
