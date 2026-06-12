@@ -44,7 +44,15 @@ export function readCloudConfig(repoRoot: string): CloudConfig | null {
 
 export function writeCloudConfig(repoRoot: string, cfg: CloudConfig): void {
   mkdirSync(path.join(repoRoot, ".aidimag"), { recursive: true });
-  writeFileSync(configPath(repoRoot), JSON.stringify(cfg, null, 2) + "\n");
+  // merge: config.json also carries the tickets section etc — never clobber
+  const p = configPath(repoRoot);
+  let existing: Record<string, unknown> = {};
+  try {
+    existing = JSON.parse(readFileSync(p, "utf8"));
+  } catch {
+    // fresh file
+  }
+  writeFileSync(p, JSON.stringify({ ...existing, server: cfg.server, brain: cfg.brain }, null, 2) + "\n");
 }
 
 function credentialsPath(): string {

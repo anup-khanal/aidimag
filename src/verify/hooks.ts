@@ -17,8 +17,10 @@ import path from "node:path";
 
 export const HOOK_MARKER = "# >>> aidimag verify hook >>>";
 export const CAPTURE_HOOK_MARKER = "# >>> aidimag capture hook >>>";
+export const BRANCH_HOOK_MARKER = "# >>> aidimag branch hook >>>";
 const VERIFY_HOOK_NAMES = ["post-merge", "post-checkout", "post-rewrite"] as const;
 const CAPTURE_HOOK_NAME = "post-commit";
+const BRANCH_PUSH_HOOK_NAME = "pre-push";
 
 function hookBlock(): string {
   return [
@@ -36,6 +38,28 @@ function captureHookBlock(): string {
     "# Mines the new commit for memory candidates (queued for review, never auto-saved).",
     "command -v dim >/dev/null 2>&1 && dim mine --quiet || npx -y aidimag mine --quiet 2>/dev/null || true",
     "# <<< aidimag capture hook <<<",
+    "",
+  ].join("\n");
+}
+
+/** post-checkout: warn (never block) when a new branch breaks the team convention. */
+function branchWarnHookBlock(): string {
+  return [
+    BRANCH_HOOK_MARKER,
+    "# Warns when the branch name breaks the team convention (tickets.branch in .aidimag/config.json).",
+    'if [ "$3" = "1" ]; then command -v dim >/dev/null 2>&1 && dim branch-check --warn || true; fi',
+    "# <<< aidimag branch hook <<<",
+    "",
+  ].join("\n");
+}
+
+/** pre-push: block pushes of non-conforming branches when enforce mode is "push". */
+function branchPushHookBlock(): string {
+  return [
+    BRANCH_HOOK_MARKER,
+    "# Blocks pushing branches that break the team convention (tickets.branch.enforce = push).",
+    "command -v dim >/dev/null 2>&1 && { dim branch-check --push || exit 1; } || true",
+    "# <<< aidimag branch hook <<<",
     "",
   ].join("\n");
 }
@@ -74,6 +98,11 @@ export function installGitHooks(repoRoot: string): HookInstallResult {
 
   for (const name of VERIFY_HOOK_NAMES) install(name, HOOK_MARKER, hookBlock());
   install(CAPTURE_HOOK_NAME, CAPTURE_HOOK_MARKER, captureHookBlock());
+  // branch convention (T1.5): warn at creation (post-checkout), gate at push
+  install("post-checkout", BRANCH_HOOK_MARKER, branchWarnHookBlock());
+  install(BRANCH_PUSH_HOOK_NAME, BRANCH_HOOK_MARKER, branchPushHookBlock());
+  result.installed = [...new Set(result.installed)];
+  result.alreadyPresent = [...new Set(result.alreadyPresent)].filter((n) => !result.installed.includes(n));
   return result;
 }
 

@@ -3,12 +3,14 @@
  * FTS5 powers Phase 1 search; sqlite-vec embeddings arrive in Phase 2.
  */
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /** Idempotent migrations for pre-existing DBs (failures = already applied). */
 export const MIGRATIONS: string[] = [
   "ALTER TABLE memories ADD COLUMN updated_at TEXT",
   "ALTER TABLE proposals ADD COLUMN updated_at TEXT",
+  // T1 tickets: ticket id extracted from branch/commit message (offline)
+  "ALTER TABLE proposals ADD COLUMN ticket_ref TEXT",
 ];
 
 export const SCHEMA_SQL = `
@@ -97,7 +99,8 @@ CREATE TABLE IF NOT EXISTS proposals (
   created_at TEXT NOT NULL,
   status     TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED')),
   memory_id  TEXT REFERENCES memories(id) ON DELETE SET NULL,  -- set when approved
-  updated_at TEXT
+  updated_at TEXT,
+  ticket_ref TEXT                           -- ticket id (e.g. XXX-2100) when known
 );
 
 CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status);

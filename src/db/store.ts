@@ -422,8 +422,8 @@ export class MemoryStore {
     try {
       this.db
         .prepare(
-          `INSERT INTO proposals (id, kind, claim, paths, symbols, evidence, source, source_ref, rationale, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO proposals (id, kind, claim, paths, symbols, evidence, source, source_ref, rationale, created_at, updated_at, ticket_ref)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -438,7 +438,8 @@ export class MemoryStore {
           input.sourceRef ?? "",
           input.rationale ?? null,
           now,
-          now
+          now,
+          input.ticketRef ?? null
         );
     } catch (err) {
       // UNIQUE(source, source_ref, claim) — already proposed
@@ -534,6 +535,7 @@ export class MemoryStore {
       status: row.status as ProposalStatus,
       memoryId: (row.memory_id as string | null) ?? null,
       updatedAt: (row.updated_at as string | null) ?? null,
+      ticketRef: (row.ticket_ref as string | null) ?? undefined,
     };
   }
 
@@ -709,8 +711,8 @@ export class MemoryStore {
     try {
       this.db
         .prepare(
-          `INSERT INTO proposals (id, kind, claim, paths, symbols, evidence, source, source_ref, rationale, created_at, status, memory_id, updated_at)
-           VALUES (@id, @kind, @claim, @paths, @symbols, @evidence, @source, @source_ref, @rationale, @created_at, @status, NULL, @updated_at)
+          `INSERT INTO proposals (id, kind, claim, paths, symbols, evidence, source, source_ref, rationale, created_at, status, memory_id, updated_at, ticket_ref)
+           VALUES (@id, @kind, @claim, @paths, @symbols, @evidence, @source, @source_ref, @rationale, @created_at, @status, NULL, @updated_at, @ticket_ref)
            ON CONFLICT(id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at`
         )
         .run({
@@ -726,6 +728,7 @@ export class MemoryStore {
           created_at: p.createdAt,
           status: p.status,
           updated_at: p.updatedAt ?? p.createdAt,
+          ticket_ref: p.ticketRef ?? null,
         });
     } catch (err) {
       // (source, source_ref, claim) dedupe collision with a different id —

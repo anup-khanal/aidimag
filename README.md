@@ -33,6 +33,8 @@ dim status
 | `dim mine` | Mine git history for memory candidates (`--full` to rescan all) |
 | `dim review [approve\|reject] [id\|all]` | Review the proposal queue — plain `dim review` opens a conversational walkthrough (keep / reword / drop / skip per proposal) |
 | `dim verify` | Re-run evidence, update statuses (`--deep` for tests/exec, `-q` for hooks, `-i <id>` to scope; exit 2 if anything went stale) |
+| `dim ticket connect\|status\|show` | Connect Jira / GitHub Issues / your own HTTP middleware — proposals then carry ticket context |
+| `dim branch <ticket-id>` | Create a convention-conforming branch (fetches the ticket title for the slug when connected) |
 | `dim log` | Recent memories |
 | `dim forget <id>` | Delete a memory |
 | `dim ui` | Web dashboard covering every workflow — add/search memories, review queue, verify, mine, sync, cloud link, API keys, memory graph (`-p <port>`, default 4517) |
@@ -54,7 +56,9 @@ Nothing enters active memory without human approval:
    Also runnable manually: `dim mine` (incremental, cursor-tracked) or `dim mine --full`.
    Merge/squash commits are mined too — GitHub PR titles and descriptions in merge
    bodies are promoted to the claim. Each candidate is anchored with `COMMIT_REF`
-   evidence and queued as a proposal.
+   evidence and queued as a proposal. **Ticket-aware**: the ticket id is extracted
+   offline from the branch name / commit message (pattern in `.aidimag/config.json`);
+   with a provider connected (`dim ticket connect`), review shows live ticket context.
 2. **Session-end extraction** — agents invoke the `session_end_extraction` MCP prompt and
    call `memory_propose` with falsifiable, evidence-backed claims.
 3. **Review** — `dim review` walks you through the queue conversationally:
@@ -170,5 +174,6 @@ Phase 6 (team mode v1) ✅ — self-hostable sync server (`dim serve`), LWW sync
 SaaS-ready auth ✅ — brain-scoped API keys (`dim keys`), Docker/Fly deployment (deploy/).
 VSCode extension ✅ — dashboard webview, status-bar memory health (vscode-extension/).
 SaaS groundwork ✅ — `dim login`/`logout` (device-code flow), append-only event log shipped on sync, cross-machine verification consensus (`/v1/consensus`), debounced auto-sync after writes.
-Next: npm publish; hosted SaaS top layer (GitHub OAuth on the device flow, Postgres, billing per CLOUD_DESIGN.md); ticket-aware capture (Jira/GitHub/Linear context on proposals, per [TICKETS_DESIGN.md](./TICKETS_DESIGN.md)).
+Tickets T1–T2 ✅ — ticket-id extraction (branch/commit, offline), `TicketProvider` contract with Jira/GitHub/HTTP adapters (`dim ticket connect|status|show`), review-time enrichment, branch convention enforcement (`tickets.branch` config: post-checkout warn + pre-push block, `dim branch` helper).
+Next: npm publish; hosted SaaS top layer (GitHub OAuth on the device flow, Postgres, billing per CLOUD_DESIGN.md); tickets T3+ (sync-server RemoteProvider, per [TICKETS_DESIGN.md](./TICKETS_DESIGN.md)).
 

@@ -212,6 +212,7 @@ function printProposal(p: Proposal): void {
   if (p.evidence.length) {
     console.log(`    evidence: ${p.evidence.map((e) => `${e.type}:${e.payload}`).join("  ")}`);
   }
+  if (p.ticketRef) console.log(`    ticket: ${p.ticketRef}`);
   if (p.rationale) console.log(`    rationale: ${p.rationale}`);
 }
 
@@ -250,6 +251,10 @@ async function interactiveReview(store: MemoryStore): Promise<{ kept: number; re
   let kept = 0;
   let rejected = 0;
   let skipped = 0;
+  // T2: lazy ticket enrichment — fetched at review time, never at capture time
+  const reviewRoot = findRepoRoot();
+  const { ticketProviderFor } = await import("../tickets/provider.js");
+  const provider = reviewRoot ? ticketProviderFor(reviewRoot) : null;
   const plural = pending.length === 1 ? "proposal is" : "proposals are";
   console.log(`🧠 ${pending.length} memory ${plural} waiting for your review.\n`);
   try {
@@ -261,6 +266,21 @@ async function interactiveReview(store: MemoryStore): Promise<{ kept: number; re
       if (p.paths.length || p.symbols.length) console.log(`   applies to: ${[...p.paths, ...p.symbols].join(", ")}`);
       if (p.evidence.length)
         console.log(`   evidence:   ${p.evidence.map((e) => `${e.type}:${e.payload.slice(0, 60)}`).join("  ")}`);
+      if (p.ticketRef) {
+        let ticketLine = p.ticketRef;
+        if (provider) {
+          const t = await provider.getTicket(p.ticketRef).catch(() => null);
+          if (t) {
+            ticketLine = `${t.id} “${t.title}” (${t.type}, ${t.status}) — ${t.url}`;
+            if (t.body) console.log(`   ticket:     ${ticketLine}\n               ${t.body.slice(0, 200).replace(/\s+/g, " ")}${t.body.length > 200 ? "…" : ""}`);
+            else console.log(`   ticket:     ${ticketLine}`);
+          } else {
+            console.log(`   ticket:     ${ticketLine} (couldn't fetch — provider offline or ticket missing)`);
+          }
+        } else {
+          console.log(`   ticket:     ${ticketLine}`);
+        }
+      }
       if (p.rationale) console.log(`   why:        ${p.rationale}`);
 
       const ans = (
@@ -659,6 +679,124 @@ program
       default:
         fail(`unknown action '${action}'. Use: create | list | revoke`);
     }
+  });
+
+program
+  .command("ticket")
+  .description("Connect a ticketing app so proposals carry real context (Jira, GitHub Issues, or your own HTTP middleware)")
+  .argument("<action>", "connect | status | disconnect | show")
+  .argument("[id]", "Ticket id for 'show', e.g. XXX-2100 or #123")
+  .option("--provider <name>", "jira | github | http (connect)")
+  .option("--url <baseUrl>", "Jira site / GitHub repo URL / middleware endpoint (connect)")
+  .option("--token <credential>", "Jira: email:apiToken or PAT · GitHub: token · http: optional bearer (connect)")
+  .option("--pattern <regex>", "Ticket-id pattern for branch/commit extraction (connect)")
+  .action(async (action: string, id: string | undefined, opts) => {
+    const root = findRepoRoot() ?? fail("not inside a repo");
+    const tickets = await import("../tickets/provider.js");
+    switch (action) {
+      case "connect": {
+        if (!opts.provider || !opts.url) fail("usage: dim ticket connect --provider jira|github|http --url <baseUrl> [--token <credential>] [--pattern <regex>]");
+        const provider = String(opts.provider).toLowerCase() as "jira" | "github" | "http";
+        if (!["jira", "github", "http"].includes(provider)) fail(`unknown provider '${opts.provider}' — use jira, github, or http`);
+        const baseUrl = String(opts.url).replace(/\/$/, "");
+        const existing = tickets.readTicketsConfig(root);
+        tickets.writeTicketsConfig(root, {
+          ...existing,
+          provider,
+          baseUrl,
+          pattern: opts.pattern ?? existing.pattern ?? (provider === "github" ? "#\\d+" : tickets.DEFAULT_TICKET_PATTERN),
+        });
+        if (opts.token) tickets.saveTicketCredential(baseUrl, String(opts.token));
+        console.log(`🎫 Connected ${provider} at ${baseUrl}.`);
+        console.log(`   Config in .aidimag/config.json (commit it — no secrets inside).`);
+        console.log(opts.token ? `   Credential stored in ~/.aidimag/credentials.json (this machine only).` : `   ⚠ No credential yet — pass --token, or set AIDIMAG_TICKET_TOKEN.`);
+        // trust-building: validate with a live round-trip when possible
+        const p = tickets.ticketProviderFor(root);
+        if (p && id) {
+          const t = await p.getTicket(id).catch((e) => fail(`validation fetch failed: ${e.message}`));
+          console.log(t ? `   ✓ Validated — fetched ${t.id}: “${t.title}”` : `   ⚠ ${id} not found (connection works, ticket doesn't exist)`);
+        } else if (p) {
+          console.log(`   Tip: validate with \`dim ticket show <id>\`.`);
+        }
+        break;
+      }
+      case "status": {
+        const cfg = tickets.readTicketsConfig(root);
+        if (!cfg.provider) {
+          console.log("No ticketing app connected. Use `dim ticket connect --provider jira --url https://you.atlassian.net --token email:apiToken`.");
+          break;
+        }
+        console.log(`provider: ${cfg.provider}\nbaseUrl:  ${cfg.baseUrl}\npattern:  ${cfg.pattern ?? tickets.DEFAULT_TICKET_PATTERN}\ntoken:    ${cfg.baseUrl && tickets.getTicketCredential(cfg.baseUrl) ? "stored" : "MISSING"}`);
+        const branch = cfg.branch;
+        if (branch?.pattern) console.log(`branch:   ${branch.pattern} (enforce: ${branch.enforce ?? "off"})`);
+        break;
+      }
+      case "disconnect": {
+        const existing = tickets.readTicketsConfig(root);
+        tickets.writeTicketsConfig(root, { branch: existing.branch }); // keep branch rules, drop provider
+        console.log("🎫 Disconnected (credential kept in ~/.aidimag/credentials.json — remove manually if needed).");
+        break;
+      }
+      case "show": {
+        if (!id) fail("usage: dim ticket show <id>");
+        const p = tickets.ticketProviderFor(root) ?? fail("no ticketing app connected (or credential missing) — run `dim ticket connect` first");
+        const t = await p.getTicket(id);
+        if (!t) fail(`ticket ${id} not found`);
+        console.log(`🎫 ${t.id} — ${t.title}\n   ${t.type} · ${t.status}${t.labels.length ? ` · ${t.labels.join(", ")}` : ""}${t.parent ? `\n   part of ${t.parent.id} “${t.parent.title}”` : ""}\n   ${t.url}`);
+        if (t.body) console.log(`\n${t.body}`);
+        break;
+      }
+      default:
+        fail(`unknown action '${action}'. Use: connect | status | disconnect | show`);
+    }
+  });
+
+program
+  .command("branch")
+  .description("Create a convention-conforming branch for a ticket (fetches the title for the slug when connected)")
+  .argument("<ticketId>", "e.g. XXX-2100")
+  .option("-p, --prefix <prefix>", "Branch prefix", "feature")
+  .action(async (ticketId: string, opts) => {
+    const root = findRepoRoot() ?? fail("not inside a git repo");
+    const { ticketProviderFor, buildBranchName } = await import("../tickets/provider.js");
+    const provider = ticketProviderFor(root);
+    let title: string | undefined;
+    if (provider) {
+      const t = await provider.getTicket(ticketId).catch(() => null);
+      title = t?.title;
+      if (t) console.log(`🎫 ${t.id}: “${t.title}”`);
+    }
+    const name = buildBranchName(ticketId, title, opts.prefix);
+    const { execFileSync } = await import("node:child_process");
+    execFileSync("git", ["checkout", "-b", name], { cwd: root, stdio: "inherit" });
+    console.log(`🌿 You're on ${name} — commits here will carry ${ticketId} automatically.`);
+  });
+
+program
+  .command("branch-check", { hidden: true })
+  .description("Validate the current branch against the team convention (used by git hooks)")
+  .option("--warn", "Warn only (post-checkout)")
+  .option("--push", "Exit 1 on violation when enforce mode is 'push' (pre-push)")
+  .action(async (opts) => {
+    const root = findRepoRoot();
+    if (!root) return;
+    const { checkBranchName } = await import("../tickets/provider.js");
+    const { execFileSync } = await import("node:child_process");
+    let branch = "";
+    try {
+      branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+    } catch {
+      return; // detached HEAD / not a repo — nothing to check
+    }
+    const r = checkBranchName(root, branch);
+    if (r.ok || r.exempt || r.enforce === "off") return;
+    const fixHint = `git branch -m ${branch} <conforming-name>   (or next time: dim branch <TICKET-ID>)`;
+    if (opts.push && r.enforce === "push") {
+      console.error(`\n🌿 aidimag: branch '${branch}' doesn't match the team convention (${r.pattern}).`);
+      console.error(`   Pushes of non-conforming branches are blocked. Rename with:\n   ${fixHint}\n`);
+      process.exit(1);
+    }
+    console.error(`🌿 aidimag: heads up — '${branch}' doesn't match the team's branch convention (${r.pattern}). Fix: ${fixHint}`);
   });
 
 program

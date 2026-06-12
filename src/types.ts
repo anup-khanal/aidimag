@@ -108,6 +108,8 @@ export interface ProposalInput {
   sourceRef?: string;
   /** why the source thinks this is worth remembering */
   rationale?: string;
+  /** ticket id (e.g. XXX-2100) extracted from branch/commit message */
+  ticketRef?: string;
 }
 
 export interface Proposal extends ProposalInput {

@@ -10,6 +10,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { extractTicketId, readTicketsConfig, DEFAULT_TICKET_PATTERN } from "../tickets/provider.js";
 import type { MemoryKind, Proposal, ProposalInput } from "../types.js";
 import type { MemoryStore } from "../db/store.js";
 
@@ -198,12 +199,27 @@ export function mineCommits(
   const sinceSha = opts.full ? null : store.getMeta(MINER_CURSOR_KEY);
   const commits = readCommits(repoRoot, sinceSha, opts.maxCommits ?? 500);
 
+  // T1 ticket extraction (offline): per-commit from the message; for
+  // incremental mining (the post-commit hook path) the current branch name is
+  // a trustworthy fallback — for full-history scans it would mislabel.
+  const ticketPattern = readTicketsConfig(repoRoot).pattern ?? DEFAULT_TICKET_PATTERN;
+  let branchTicket: string | null = null;
+  if (sinceSha) {
+    try {
+      const branch = git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+      branchTicket = extractTicketId(branch, ticketPattern);
+    } catch {
+      // detached HEAD etc — message extraction still applies
+    }
+  }
+
   const proposed: Proposal[] = [];
   let skippedDuplicates = 0;
 
   for (const c of commits) {
     const hit = classifyCommit(c);
     if (!hit) continue;
+    const ticketRef = extractTicketId(`${c.subject}\n${c.body}`, ticketPattern) ?? branchTicket ?? undefined;
     const input: ProposalInput = {
       kind: hit.kind,
       claim: buildClaim(c, hit.kind),
@@ -212,6 +228,7 @@ export function mineCommits(
       source: "commit-miner",
       sourceRef: c.sha,
       rationale: `Matched signal "${hit.matched}" in commit ${c.sha.slice(0, 8)}: ${c.subject}`,
+      ticketRef,
     };
     const p = store.propose(input);
     if (p) proposed.push(p);

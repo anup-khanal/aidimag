@@ -1,7 +1,9 @@
-# Tickets Design — ticket-aware memory capture (future)
+# Tickets Design — ticket-aware memory capture
 
-> Status: design draft (2026-06-11). Not yet implemented. Builds on the capture
-> pipeline (Phase 2), the post-commit capture hook, and team sync (Phase 6).
+> Status: T1, T1.5, and core T2 **implemented** (2026-06-11) — see the phasing
+> table. Remaining: RemoteProvider via sync server (T3), HttpProvider contract
+> doc + Linear (T4), TICKET_REF evidence type (needs evidence-table CHECK
+> migration), interactive `dim ticket connect` browser flow.
 
 ## Motivation
 
@@ -238,12 +240,12 @@ Design choices:
 
 | Phase | Scope |
 |---|---|
-| T1 | `TicketProvider` interface + ticket-id extraction in the post-commit miner (id stored on proposals; no network) |
-| T1.5 | Branch convention enforcement: `pre-push` + `post-checkout` validation against the committed pattern (`enforce: warn\|push\|off`); `dim branch <ticket-id>` helper (works without a provider — id only; with a provider, adds the title slug) |
-| T2 | JiraProvider + GitHubProvider, `dim ticket connect/status/show`, lazy enrichment at review time, `TICKET_REF` evidence |
+| T1 ✅ | `TicketProvider` interface + ticket-id extraction in the post-commit miner (per-commit from the message; branch-name fallback on incremental mines; stored as `proposals.ticket_ref`; no network) |
+| T1.5 ✅ | Branch convention enforcement: `pre-push` block + `post-checkout` warn via hidden `dim branch-check` (`tickets.branch.{pattern,exempt,enforce}` in committed config); `dim branch <ticket-id>` helper (id-only without a provider; title slug with one) |
+| T2 ✅ (core) | JiraProvider + GitHubProvider + HttpProvider, `dim ticket connect/status/disconnect/show` (flag-based), lazy enrichment in interactive review (5s timeout, offline-safe). Remaining: `TICKET_REF` evidence type (evidence-table CHECK migration), interactive browser connect flow |
 | T3 | RemoteProvider via sync server (team-shared credentials, caching); dashboard config UI; `dim ticket branch-rule --print github\|gitlab` for server-side rule generation |
 | T4 | HttpProvider contract doc (public, versioned); Linear + others as demand shows |
-| T5 | Conversational review (`dim review` interactive rewording); agent-side session-end ticket awareness |
+| T5 | Conversational review (`dim review` interactive rewording) ✅ shipped early with the NL layer; agent-side session-end ticket awareness remains |
 
 ## Open questions
 
