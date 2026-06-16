@@ -20,7 +20,8 @@ import { mineCommits } from "../capture/commit-miner.js";
 import { verifyAll } from "../verify/engine.js";
 import { installGitHooks } from "../verify/hooks.js";
 import { hybridSearch, indexMemory, reindexAll } from "../embeddings/search.js";
-import type { EvidenceType, MemoryEntry, MemoryKind, Proposal } from "../types.js";
+import { resolveKnowledgeConfig } from "../config.js";
+import type { EvidenceType, GuardrailLevel, MemoryEntry, MemoryKind, Proposal } from "../types.js";
 
 /** Version comes from package.json — single source of truth. */
 const PKG_VERSION: string = JSON.parse(
@@ -31,8 +32,11 @@ const program = new Command();
 
 const KINDS: MemoryKind[] = [
   "DECISION", "CONVENTION", "GOTCHA", "FAILED_APPROACH",
-  "ARCHITECTURE", "INVARIANT", "TODO_CONTEXT",
+  "ARCHITECTURE", "INVARIANT", "TODO_CONTEXT", "GUARDRAIL", "SKILL",
 ];
+
+const GUARDRAIL_LEVELS: GuardrailLevel[] = ["never", "always", "ask-first"];
+const GUARDRAIL_ICON: Record<GuardrailLevel, string> = { never: "🚫", always: "✅", "ask-first": "🤚" };
 
 function fail(msg: string): never {
   console.error(`dim: ${msg}`);
@@ -48,19 +52,81 @@ async function autoSync(store: MemoryStore): Promise<void> {
   if (r) console.log(`(auto-synced: pushed ${r.pushed}, pulled ${r.pulled}, events ${r.eventsPushed})`);
 }
 
+/**
+ * Regenerate the static context file(s) after a memory-set change, but only when
+ * the repo opted in via `generateContext.auto` in .aidimag/config.json. Keeps
+ * CLAUDE.md / .cursorrules / copilot-instructions in lock-step with verified
+ * memory so non-MCP tools never read a stale spec. Best-effort: never throws.
+ */
+async function maybeRegenerateContext(store: MemoryStore): Promise<void> {
+  const root = findRepoRoot();
+  if (!root) return;
+  try {
+    const { readConfig } = await import("../config.js");
+    const cfg = readConfig(root).generateContext;
+    if (!cfg?.auto) return;
+    const { generateContext } = await import("../context/generate.js");
+    const r = generateContext(store, root, cfg.format ?? "claude");
+    console.log(`(regenerated ${r.files.join(", ")} — ${r.total} memories)`);
+  } catch {
+    /* context regen is advisory; failures must not break the command */
+  }
+}
+
 function printMemory(m: MemoryEntry, verbose = false): void {
   const statusIcon =
     m.status === "VERIFIED" ? "✓" : m.status === "REFUTED" ? "✗" : m.status === "STALE" ? "~" : "?";
-  console.log(`${statusIcon} [${m.kind}] ${m.claim}`);
+  const guard =
+    m.kind === "GUARDRAIL" && m.guardrailLevel
+      ? ` ${GUARDRAIL_ICON[m.guardrailLevel]} ${m.guardrailLevel.toUpperCase()}`
+      : "";
+  console.log(`${statusIcon} ${m.pinned ? "📌 " : ""}[${m.kind}${guard}] ${m.claim}`);
   const scope = [...m.scope.paths, ...m.scope.symbols];
   console.log(
     `    id=${m.id.slice(0, 8)} status=${m.status} conf=${m.confidence.toFixed(2)}` +
+      (m.pinned ? " pinned" : "") +
       (scope.length ? ` scope=${scope.join(",")}` : "")
   );
   if (verbose && m.grounding.length) {
     for (const e of m.grounding) {
       console.log(`    evidence: ${e.type}(${e.result}) ${e.payload}`);
     }
+  }
+}
+
+/** Human-readable summary of a knowledge-inbox ingest run. */
+function printIngestReport(report: import("../knowledge/ingest.js").IngestReport): void {
+  if (report.processed.length) {
+    const claims = report.processed.reduce((n, d) => n + d.claimCount, 0);
+    const pinned = report.processed.filter((d) => d.pinned).length;
+    console.log(
+      `📚 Processed ${report.processed.length} doc(s) → ${claims} claim(s) ` +
+        (pinned ? `(${pinned} auto-pinned)` : "queued as proposals — review with `dim review`") +
+        (report.summarizer ? `  ·  via ${report.summarizer}` : "")
+    );
+    for (const d of report.processed) {
+      console.log(`   • ${d.file}: ${d.claimCount} claim(s)${d.pinned ? " (pinned)" : ""}`);
+    }
+  }
+  if (report.duplicates.length) {
+    console.log(`↩︎  ${report.duplicates.length} unchanged duplicate(s) retired: ${report.duplicates.join(", ")}`);
+  }
+  if (report.skipped.length) {
+    console.log(`⚠️  Skipped ${report.skipped.length} unsupported file(s) (moved to .aidimag/knowledge/skipped/):`);
+    for (const s of report.skipped) console.log(`   • ${s.file} — ${s.reason}`);
+  }
+  if (report.pendingNoSummarizer.length) {
+    console.log(
+      `⏳ ${report.pendingNoSummarizer.length} doc(s) waiting in the inbox — no summarizer available ` +
+        `(configure knowledge.summarizer / an LLM provider, or summarize via a connected MCP agent).`
+    );
+    for (const f of report.pendingNoSummarizer) console.log(`   • ${f}`);
+  }
+  if (
+    !report.processed.length && !report.duplicates.length &&
+    !report.skipped.length && !report.pendingNoSummarizer.length
+  ) {
+    console.log("Knowledge inbox is empty — nothing to process.");
   }
 }
 
@@ -82,7 +148,20 @@ program
     // keep the DB out of git by default (team-sync mode comes later)
     const gitignore = path.join(dir, ".gitignore");
     if (!existsSync(gitignore)) {
-      writeFileSync(gitignore, "memory.db\nmemory.db-wal\nmemory.db-shm\n");
+      writeFileSync(gitignore, "memory.db\nmemory.db-wal\nmemory.db-shm\nknowledge/\n");
+    } else if (!readFileSync(gitignore, "utf8").includes("knowledge/")) {
+      appendFileSync(gitignore, "knowledge/\n");
+    }
+    // knowledge inbox: a drop folder for project docs (summaries/backups live in .aidimag/)
+    const knowledgeInbox = path.join(root, resolveKnowledgeConfig(root).folder);
+    mkdirSync(knowledgeInbox, { recursive: true });
+    const gitkeep = path.join(knowledgeInbox, ".gitkeep");
+    if (!existsSync(gitkeep)) {
+      writeFileSync(
+        gitkeep,
+        "# Drop project docs here (design docs, ADRs, style guides, runbooks).\n" +
+          "# aidimag summarizes them into reviewed, pinned memories — see `dim knowledge`.\n"
+      );
     }
     // suggest MCP wiring
     console.log(fresh ? `Initialized aidimag in ${dir}` : `aidimag already initialized in ${dir}`);
@@ -104,9 +183,14 @@ program
     const rootIgnore = path.join(root, ".gitignore");
     if (existsSync(path.join(root, ".git"))) {
       const current = existsSync(rootIgnore) ? readFileSync(rootIgnore, "utf8") : "";
-      if (!current.includes(".aidimag/memory.db")) {
-        appendFileSync(rootIgnore, `${current.endsWith("\n") || current === "" ? "" : "\n"}.aidimag/memory.db*\n`);
-        console.log(`\nAdded .aidimag/memory.db* to ${rootIgnore}`);
+      const folder = resolveKnowledgeConfig(root).folder;
+      const additions: string[] = [];
+      if (!current.includes(".aidimag/memory.db")) additions.push(".aidimag/memory.db*");
+      // keep dropped knowledge docs (may contain secrets) out of git, but track the folder
+      if (!current.includes(`${folder}/*`)) additions.push(`${folder}/*`, `!${folder}/.gitkeep`);
+      if (additions.length) {
+        appendFileSync(rootIgnore, `${current.endsWith("\n") || current === "" ? "" : "\n"}${additions.join("\n")}\n`);
+        console.log(`\nUpdated ${rootIgnore} (ignored memory.db + ${folder}/ drops)`);
       }
     }
   });
@@ -122,9 +206,20 @@ program
     "-e, --evidence <spec...>",
     "Evidence as TYPE:payload, e.g. COMMIT_REF:abc123 or STATIC_CHECK:'grep ...'"
   )
+  .option("-g, --guardrail-level <level>", `For kind=GUARDRAIL: ${GUARDRAIL_LEVELS.join("|")}`)
+  .option("--pin", "Pin the memory: it never decays with age (evidence failure can still mark it stale)")
   .action(async (claim: string, opts) => {
     const kind = String(opts.kind).toUpperCase() as MemoryKind;
     if (!KINDS.includes(kind)) fail(`invalid kind '${opts.kind}'. Use one of: ${KINDS.join(", ")}`);
+    let guardrailLevel: GuardrailLevel | undefined;
+    if (kind === "GUARDRAIL") {
+      guardrailLevel = (opts.guardrailLevel ?? "ask-first") as GuardrailLevel;
+      if (!GUARDRAIL_LEVELS.includes(guardrailLevel)) {
+        fail(`invalid --guardrail-level '${opts.guardrailLevel}'. Use one of: ${GUARDRAIL_LEVELS.join(", ")}`);
+      }
+    } else if (opts.guardrailLevel) {
+      fail("--guardrail-level only applies to --kind GUARDRAIL");
+    }
     const evidence = (opts.evidence as string[] | undefined)?.map((spec) => {
       const idx = spec.indexOf(":");
       if (idx < 1) fail(`invalid evidence '${spec}'. Format: TYPE:payload`);
@@ -132,7 +227,7 @@ program
       return { type, payload: spec.slice(idx + 1) };
     });
     const store = MemoryStore.open(process.cwd(), { create: true });
-    const entry = store.write({ kind, claim, paths: opts.path, symbols: opts.symbol, evidence, createdBy: "human" });
+    const entry = store.write({ kind, claim, paths: opts.path, symbols: opts.symbol, evidence, createdBy: "human", pinned: Boolean(opts.pin), guardrailLevel });
     console.log("🧠 Got it — I'll remember:");
     printMemory(entry, true);
     if (!evidence?.length) {
@@ -197,11 +292,52 @@ program
     if (Object.keys(s.byKind).length) {
       console.log(`  by kind:   ${Object.entries(s.byKind).map(([k, v]) => `${k}=${v}`).join("  ")}`);
     }
+    if (s.pinned) {
+      console.log(`  pinned:    ${s.pinned} (exempt from time decay)`);
+    }
     if (s.pendingProposals) {
       console.log(`\n${s.pendingProposals} proposal(s) awaiting review — run \`dim review\``);
     }
     store.close();
   });
+
+/**
+ * Line-buffering prompt for interactive flows (review, ticket connect).
+ * Unlike readline/promises, lines arriving between questions (piped input)
+ * are queued, not dropped — so scripted/agent-driven input works too.
+ */
+async function createPrompter(
+  closedValue = ""
+): Promise<{ ask: (prompt: string) => Promise<string>; close: () => void }> {
+  const { createInterface } = await import("node:readline");
+  const rl = createInterface({ input: process.stdin });
+  const queued: string[] = [];
+  const waiters: Array<(s: string) => void> = [];
+  let closed = false;
+  rl.on("line", (l) => {
+    const w = waiters.shift();
+    if (w) w(l);
+    else queued.push(l);
+  });
+  rl.on("close", () => {
+    closed = true;
+    while (waiters.length) waiters.shift()!(closedValue);
+  });
+  const ask = (prompt: string): Promise<string> => {
+    process.stdout.write(prompt);
+    if (queued.length) return Promise.resolve(queued.shift()!);
+    if (closed) return Promise.resolve(closedValue);
+    return new Promise((resolve) => waiters.push(resolve));
+  };
+  return { ask, close: () => rl.close() };
+}
+
+/** Open a URL in the default browser, best-effort (matches `dim login` / `dim ui`). */
+async function openBrowser(url: string): Promise<void> {
+  const { exec } = await import("node:child_process");
+  const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+  exec(`${opener} "${url}"`);
+}
 
 function printProposal(p: Proposal): void {
   console.log(`◆ [${p.id.slice(0, 8)}] ${p.kind} (via ${p.source}${p.sourceRef ? ` @ ${p.sourceRef.slice(0, 8)}` : ""})`);
@@ -226,28 +362,7 @@ async function interactiveReview(store: MemoryStore): Promise<{ kept: number; re
     console.log("✨ Nothing waiting on you — the review queue is empty.");
     return { kept: 0, rejected: 0 };
   }
-  const { createInterface } = await import("node:readline");
-  // Line-buffering prompt instead of readline/promises: lines arriving between
-  // questions (piped/scripted input) are queued, not dropped.
-  const rl = createInterface({ input: process.stdin });
-  const queued: string[] = [];
-  const waiters: Array<(s: string) => void> = [];
-  let closed = false;
-  rl.on("line", (l) => {
-    const w = waiters.shift();
-    if (w) w(l);
-    else queued.push(l);
-  });
-  rl.on("close", () => {
-    closed = true;
-    while (waiters.length) waiters.shift()!("q");
-  });
-  const ask = (prompt: string): Promise<string> => {
-    process.stdout.write(prompt);
-    if (queued.length) return Promise.resolve(queued.shift()!);
-    if (closed) return Promise.resolve("q");
-    return new Promise((resolve) => waiters.push(resolve));
-  };
+  const { ask, close } = await createPrompter("q"); // closed stdin = quit
   let kept = 0;
   let rejected = 0;
   let skipped = 0;
@@ -311,7 +426,7 @@ async function interactiveReview(store: MemoryStore): Promise<{ kept: number; re
       }
     }
   } finally {
-    rl.close();
+    close();
   }
   const bits = [
     kept ? `${kept} remembered` : null,
@@ -406,6 +521,7 @@ program
         fail(`unknown action '${action}'. Use: list | approve | reject (or no action for the walkthrough)`);
     }
     if (effective === "approve" || effective === "reject") await autoSync(store);
+    await maybeRegenerateContext(store);
     store.close();
   });
 
@@ -453,6 +569,8 @@ program
       );
     }
     await autoSync(store);
+    // keep generated context in sync when a status actually flipped
+    if (report.results.some((r) => r.after !== r.before)) await maybeRegenerateContext(store);
     store.close();
     if (report.stale > 0) process.exitCode = 2; // signal staleness to scripts
   });
@@ -480,6 +598,35 @@ program
     if (!match) fail(`no memory matching id '${id}'`);
     store.refute(match.id, opts.supersededBy);
     console.log(`✗ refuted ${match.id.slice(0, 8)}: "${match.claim}"`);
+    await autoSync(store);
+    store.close();
+  });
+
+program
+  .command("pin")
+  .description("Pin a memory: it stays with the project forever — never decays with age (evidence failure can still mark it stale)")
+  .argument("<id>", "Memory id (full or 8-char prefix)")
+  .action(async (id: string) => {
+    const store = MemoryStore.open();
+    const match = store.list(1000).find((m) => m.id === id || m.id.startsWith(id));
+    if (!match) fail(`no memory matching id '${id}'`);
+    store.setPinned(match.id, true);
+    console.log(`📌 pinned ${match.id.slice(0, 8)}: "${match.claim}"`);
+    console.log(`   It won't decay with age. Evidence checks still apply — a failing check marks it stale.`);
+    await autoSync(store);
+    store.close();
+  });
+
+program
+  .command("unpin")
+  .description("Unpin a memory — normal confidence decay resumes")
+  .argument("<id>", "Memory id (full or 8-char prefix)")
+  .action(async (id: string) => {
+    const store = MemoryStore.open();
+    const match = store.list(1000).find((m) => m.id === id || m.id.startsWith(id));
+    if (!match) fail(`no memory matching id '${id}'`);
+    store.setPinned(match.id, false);
+    console.log(`unpinned ${match.id.slice(0, 8)}: "${match.claim}" — normal decay resumes.`);
     await autoSync(store);
     store.close();
   });
@@ -622,6 +769,8 @@ program
         : "nothing new from the team";
       const sent = r.pushed ? `sent ${r.pushed}` : "nothing to send";
       console.log(`☁ Synced — ${sent}, ${recv}${r.eventsPushed ? ` (+${r.eventsPushed} verification events)` : ""}.`);
+      // a pull that changed local memory should refresh the generated context
+      if (r.applied) await maybeRegenerateContext(store);
     } catch (err) {
       fail(err instanceof Error ? err.message : String(err));
     } finally {
@@ -681,52 +830,156 @@ program
     }
   });
 
+const TICKET_PROVIDERS = ["jira", "github", "linear", "http", "remote"] as const;
+type TicketProviderName = (typeof TICKET_PROVIDERS)[number];
+type BranchEnforce = "push" | "warn" | "off";
+
 program
   .command("ticket")
-  .description("Connect a ticketing app so proposals carry real context (Jira, GitHub Issues, or your own HTTP middleware)")
-  .argument("<action>", "connect | status | disconnect | show")
-  .argument("[id]", "Ticket id for 'show', e.g. XXX-2100 or #123")
-  .option("--provider <name>", "jira | github | http (connect)")
-  .option("--url <baseUrl>", "Jira site / GitHub repo URL / middleware endpoint (connect)")
-  .option("--token <credential>", "Jira: email:apiToken or PAT · GitHub: token · http: optional bearer (connect)")
-  .option("--pattern <regex>", "Ticket-id pattern for branch/commit extraction (connect)")
+  .description("Connect a ticketing app so proposals carry real context (Jira, GitHub Issues, Linear, the team sync server, or your own HTTP middleware)")
+  .argument("<action>", "connect | status | disconnect | show | share | branch-rule")
+  .argument("[id]", "Ticket id for 'show' (e.g. XXX-2100 or #123) · provider name for 'connect' (jira|github|linear|http|remote)")
+  .option("--provider <name>", "jira | github | linear | http | remote (connect/share)")
+  .option("--url <baseUrl>", "Jira site / GitHub repo URL / middleware endpoint (connect/share)")
+  .option("--token <credential>", "Jira: email:apiToken or PAT · GitHub/Linear: token · http: optional bearer (connect/share)")
+  .option("--pattern <regex>", "Ticket-id pattern for branch/commit extraction (connect) · branch pattern (branch-rule)")
+  .option("--enforce <mode>", "push | warn | off (branch-rule)")
+  .option("--exempt <branches...>", "Exempt branch regexes, e.g. main develop 'release/.*' (branch-rule)")
+  .option("--print <host>", "Emit the server-side rule for github | gitlab | bitbucket (branch-rule)")
+  .option("--remove", "Remove the team ticket config from the sync server (share)")
+  .option("--admin-token <token>", "Sync-server admin token (share; or AIDIMAG_ADMIN_TOKEN env)")
+  .option("--no-open", "Don't open the API-token page in the browser (connect)")
   .action(async (action: string, id: string | undefined, opts) => {
     const root = findRepoRoot() ?? fail("not inside a repo");
     const tickets = await import("../tickets/provider.js");
     switch (action) {
       case "connect": {
-        if (!opts.provider || !opts.url) fail("usage: dim ticket connect --provider jira|github|http --url <baseUrl> [--token <credential>] [--pattern <regex>]");
-        const provider = String(opts.provider).toLowerCase() as "jira" | "github" | "http";
-        if (!["jira", "github", "http"].includes(provider)) fail(`unknown provider '${opts.provider}' — use jira, github, or http`);
-        const baseUrl = String(opts.url).replace(/\/$/, "");
+        // provider: positional (`dim ticket connect jira`), flag, or asked interactively
+        let provider = (id ?? opts.provider)?.toLowerCase() as TicketProviderName | undefined;
+        if (provider && !TICKET_PROVIDERS.includes(provider)) {
+          fail(`unknown provider '${provider}' — use ${TICKET_PROVIDERS.join(", ")}`);
+        }
+        // Prompt for anything missing — the prompter queues piped lines, so
+        // scripted/agent-driven input works too; on closed stdin answers come
+        // back empty and we fail fast instead of hanging (CI-safe).
+        const needsUrl = !opts.url && provider !== "linear" && provider !== "remote";
+        const interactive = !provider || (provider !== "remote" && (needsUrl || !opts.token));
+        const isTTY = Boolean(process.stdin.isTTY && process.stdout.isTTY);
         const existing = tickets.readTicketsConfig(root);
-        tickets.writeTicketsConfig(root, {
-          ...existing,
-          provider,
-          baseUrl,
-          pattern: opts.pattern ?? existing.pattern ?? (provider === "github" ? "#\\d+" : tickets.DEFAULT_TICKET_PATTERN),
-        });
-        if (opts.token) tickets.saveTicketCredential(baseUrl, String(opts.token));
-        console.log(`🎫 Connected ${provider} at ${baseUrl}.`);
-        console.log(`   Config in .aidimag/config.json (commit it — no secrets inside).`);
-        console.log(opts.token ? `   Credential stored in ~/.aidimag/credentials.json (this machine only).` : `   ⚠ No credential yet — pass --token, or set AIDIMAG_TICKET_TOKEN.`);
-        // trust-building: validate with a live round-trip when possible
-        const p = tickets.ticketProviderFor(root);
-        if (p && id) {
-          const t = await p.getTicket(id).catch((e) => fail(`validation fetch failed: ${e.message}`));
-          console.log(t ? `   ✓ Validated — fetched ${t.id}: “${t.title}”` : `   ⚠ ${id} not found (connection works, ticket doesn't exist)`);
-        } else if (p) {
-          console.log(`   Tip: validate with \`dim ticket show <id>\`.`);
+
+
+        const { ask, close } = interactive ? await createPrompter() : { ask: async () => "", close: () => undefined };
+        try {
+          if (!provider) {
+            console.log("🎫 Let's connect your ticketing app — proposals will carry the *why* from your tickets.\n");
+            const ans = (await ask(`   Which one? [${TICKET_PROVIDERS.join(" | ")}]  `)).trim().toLowerCase();
+            if (!TICKET_PROVIDERS.includes(ans as TicketProviderName)) fail(`unknown provider '${ans}' — use ${TICKET_PROVIDERS.join(", ")}`);
+            provider = ans as TicketProviderName;
+          }
+
+          // ---- remote: zero local credentials — the sync server is the middleman
+          if (provider === "remote") {
+            const { readCloudConfig, getToken } = await import("../sync/client.js");
+            const cloud = readCloudConfig(root);
+            if (!cloud) fail("remote tickets ride the sync channel — link the repo first: dim cloud link (then an admin runs `dim ticket share`)");
+            tickets.writeTicketsConfig(root, {
+              ...existing,
+              provider: "remote",
+              baseUrl: undefined,
+              pattern: opts.pattern ?? existing.pattern ?? tickets.DEFAULT_TICKET_PATTERN,
+            });
+            console.log(`🎫 Connected via the team sync server (${cloud.server}, brain: ${cloud.brain}).`);
+            console.log(`   Zero local ticket credentials — the server holds the team token.`);
+            if (!getToken(cloud.server)) console.log(`   ⚠ No sync token on this machine yet — run \`dim login\` first.`);
+            // trust-building: check the server actually has a team config
+            try {
+              const res = await fetch(`${cloud.server}/v1/ticket-config?brain=${encodeURIComponent(cloud.brain)}`, {
+                headers: { Authorization: `Bearer ${getToken(cloud.server) ?? ""}` },
+              });
+              const body = (await res.json()) as { config?: { provider?: string } | null };
+              if (res.ok && body.config?.provider) {
+                console.log(`   ✓ Server is set up for ${body.config.provider} tickets — try \`dim ticket show <id>\`.`);
+              } else {
+                console.log(`   ⚠ The server has no team ticket config yet — an admin should run \`dim ticket share\`.`);
+              }
+            } catch {
+              console.log(`   (couldn't reach the server to check its ticket config — it may be offline)`);
+            }
+            break;
+          }
+
+          // ---- direct providers: jira | github | linear | http
+          let baseUrl = (opts.url as string | undefined)?.replace(/\/$/, "");
+          if (!baseUrl && provider !== "linear") {
+            const what =
+              provider === "jira" ? "your Jira site URL (e.g. https://acme.atlassian.net)"
+              : provider === "github" ? "the repo URL (e.g. https://github.com/acme/api)"
+              : "your middleware endpoint (implements GET /ticket/:id)";
+            baseUrl = (await ask(`   What's ${what}?\n   › `)).trim().replace(/\/$/, "");
+            if (!baseUrl) fail("a base URL is required");
+          }
+
+          let token = opts.token as string | undefined;
+          if (!token && interactive) {
+            const page = tickets.TOKEN_PAGES[provider];
+            if (page) {
+              console.log(`\n   You'll need an API token — grab one here:\n   ${page}`);
+              if (opts.open && isTTY) await openBrowser(page);
+            }
+            const hint =
+              provider === "jira" ? "email:apiToken (or a PAT)"
+              : provider === "http" ? "bearer token (enter to skip — optional for internal services)"
+              : "token";
+            token = (await ask(`\n   Paste your ${hint}: `)).trim() || undefined;
+          }
+          if (!token && provider !== "http") {
+            console.log(`   ⚠ No credential provided — you can add one later (re-run connect, or set AIDIMAG_TICKET_TOKEN).`);
+          }
+
+          const credKey = baseUrl ?? "linear";
+          tickets.writeTicketsConfig(root, {
+            ...existing,
+            provider,
+            baseUrl,
+            pattern: opts.pattern ?? existing.pattern ?? (provider === "github" ? "#\\d+" : tickets.DEFAULT_TICKET_PATTERN),
+          });
+          if (token) tickets.saveTicketCredential(credKey, token);
+          console.log(`\n🎫 Connected ${provider}${baseUrl ? ` at ${baseUrl}` : ""}.`);
+          console.log(`   Config in .aidimag/config.json (commit it — no secrets inside).`);
+          if (token) console.log(`   Credential stored in ~/.aidimag/credentials.json (this machine only).`);
+
+          // trust-building: validate with a live round-trip
+          const p = tickets.ticketProviderFor(root);
+          if (p && interactive) {
+            const sample = (await ask(`   Validate with a real ticket? Enter an id (or press enter to skip): `)).trim();
+            if (sample) {
+              const t = await p.getTicket(sample).catch((e: Error) => fail(`validation fetch failed: ${e.message}`));
+              console.log(t ? `   ✓ Validated — fetched ${t.id}: “${t.title}”` : `   ⚠ ${sample} not found (connection works, ticket doesn't exist)`);
+            } else {
+              console.log(`   Tip: validate any time with \`dim ticket show <id>\`.`);
+            }
+          } else if (p) {
+            console.log(`   Tip: validate with \`dim ticket show <id>\`.`);
+          }
+        } finally {
+          close();
         }
         break;
       }
       case "status": {
         const cfg = tickets.readTicketsConfig(root);
         if (!cfg.provider) {
-          console.log("No ticketing app connected. Use `dim ticket connect --provider jira --url https://you.atlassian.net --token email:apiToken`.");
+          console.log("No ticketing app connected. Run `dim ticket connect` to set one up interactively.");
           break;
         }
-        console.log(`provider: ${cfg.provider}\nbaseUrl:  ${cfg.baseUrl}\npattern:  ${cfg.pattern ?? tickets.DEFAULT_TICKET_PATTERN}\ntoken:    ${cfg.baseUrl && tickets.getTicketCredential(cfg.baseUrl) ? "stored" : "MISSING"}`);
+        if (cfg.provider === "remote") {
+          const { readCloudConfig, getToken } = await import("../sync/client.js");
+          const cloud = readCloudConfig(root);
+          console.log(`provider: remote (via the team sync server)\nserver:   ${cloud?.server ?? "NOT LINKED — dim cloud link"}\nbrain:    ${cloud?.brain ?? "—"}\npattern:  ${cfg.pattern ?? tickets.DEFAULT_TICKET_PATTERN}\ntoken:    ${cloud && getToken(cloud.server) ? "sync token stored" : "MISSING — dim login"}`);
+        } else {
+          const credKey = cfg.baseUrl ?? "linear";
+          console.log(`provider: ${cfg.provider}${cfg.baseUrl ? `\nbaseUrl:  ${cfg.baseUrl}` : ""}\npattern:  ${cfg.pattern ?? tickets.DEFAULT_TICKET_PATTERN}\ntoken:    ${tickets.getTicketCredential(credKey) ? "stored" : "MISSING"}`);
+        }
         const branch = cfg.branch;
         if (branch?.pattern) console.log(`branch:   ${branch.pattern} (enforce: ${branch.enforce ?? "off"})`);
         break;
@@ -746,8 +999,90 @@ program
         if (t.body) console.log(`\n${t.body}`);
         break;
       }
+      // T3: admin pushes the team's ticket credential to the sync server —
+      // teammates then run `dim ticket connect remote` and never hold a token.
+      case "share": {
+        const { readCloudConfig } = await import("../sync/client.js");
+        const cloud = readCloudConfig(root) ?? fail("repo is not cloud-linked — run `dim cloud link` first");
+        const admin = opts.adminToken ?? process.env.AIDIMAG_ADMIN_TOKEN;
+        if (!admin) fail("provide --admin-token or set AIDIMAG_ADMIN_TOKEN (share configures TEAM credentials — admin only)");
+        const endpoint = `${cloud.server}/v1/ticket-config?brain=${encodeURIComponent(cloud.brain)}`;
+        if (opts.remove) {
+          const res = await fetch(endpoint, { method: "DELETE", headers: { Authorization: `Bearer ${admin}` } });
+          const body = (await res.json()) as { removed?: boolean; error?: string };
+          if (!res.ok) fail(`server: ${body.error ?? res.status}`);
+          console.log(body.removed ? "🎫 Team ticket config removed from the server." : "No team ticket config to remove.");
+          break;
+        }
+        const local = tickets.readTicketsConfig(root);
+        const provider = (opts.provider ?? (local.provider !== "remote" ? local.provider : undefined)) as string | undefined;
+        if (!provider) fail("usage: dim ticket share --provider jira|github|linear|http --url <baseUrl> --token <credential> (defaults come from this repo's `dim ticket connect`)");
+        const baseUrl = (opts.url as string | undefined)?.replace(/\/$/, "") ?? local.baseUrl ?? "";
+        const credential = (opts.token as string | undefined) ?? tickets.getTicketCredential(baseUrl || "linear") ?? undefined;
+        if (!credential && provider !== "http") fail("no credential to share — pass --token (or connect locally first so it can be reused)");
+        const res = await fetch(endpoint, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin}` },
+          body: JSON.stringify({ provider, baseUrl, credential }),
+        });
+        const body = (await res.json()) as { ok?: boolean; error?: string };
+        if (!res.ok) fail(`server: ${body.error ?? res.status}`);
+        console.log(`🎫 Team ticket config stored on ${cloud.server} (brain: ${cloud.brain}, provider: ${provider}).`);
+        console.log(`   Teammates: \`dim ticket connect remote\` — zero local ticket credentials, server-side caching.`);
+        break;
+      }
+      // T1.5/T3: manage the branch convention + emit the matching server-side rule
+      case "branch-rule": {
+        const existing = tickets.readTicketsConfig(root);
+        if (opts.pattern || opts.enforce || opts.exempt) {
+          const enforce = opts.enforce as BranchEnforce | undefined;
+          if (enforce && !["push", "warn", "off"].includes(enforce)) fail(`--enforce must be push, warn, or off (got '${enforce}')`);
+          tickets.writeTicketsConfig(root, {
+            ...existing,
+            branch: {
+              ...existing.branch,
+              ...(opts.pattern ? { pattern: opts.pattern } : {}),
+              ...(enforce ? { enforce } : {}),
+              ...(opts.exempt ? { exempt: opts.exempt as string[] } : {}),
+            },
+          });
+          console.log("🌿 Branch convention saved to .aidimag/config.json (commit it — every member's hooks enforce it after `dim init`).");
+        }
+        const rules = tickets.readTicketsConfig(root).branch ?? {};
+        if (!rules.pattern) {
+          console.log("No branch convention configured. Set one with:\n  dim ticket branch-rule --pattern '^(feature|bugfix|hotfix|chore)/[A-Z][A-Z0-9]+-\\d+(-[a-z0-9-]+)?$' --enforce push");
+          break;
+        }
+        if (!opts.print) {
+          console.log(`pattern: ${rules.pattern}\nenforce: ${rules.enforce ?? "off"}\nexempt:  ${(rules.exempt ?? ["main", "master", "develop", "release/.*", "HEAD"]).join(", ")}`);
+          console.log(`\nCatch --no-verify bypassers with a server-side rule: dim ticket branch-rule --print github|gitlab|bitbucket`);
+          break;
+        }
+        const host = String(opts.print).toLowerCase();
+        const exempt = rules.exempt ?? ["main", "master", "develop", "release/.*"];
+        if (host === "github") {
+          console.log(`GitHub ruleset (Settings → Rules → Rulesets → New branch ruleset → import JSON),\nor: gh api repos/{owner}/{repo}/rulesets --input ruleset.json\n`);
+          console.log(JSON.stringify({
+            name: "aidimag branch convention",
+            target: "branch",
+            enforcement: rules.enforce === "push" ? "active" : "evaluate",
+            conditions: { ref_name: { include: ["~ALL"], exclude: exempt.map((e) => `refs/heads/${e}`) } },
+            rules: [{ type: "branch_name_pattern", parameters: { operator: "regex", pattern: rules.pattern, negate: false, name: "ticket-prefixed branches" } }],
+          }, null, 2));
+        } else if (host === "gitlab") {
+          console.log(`GitLab push rules (Settings → Repository → Push rules → Branch name), or via API:\n`);
+          console.log(`  curl --request PUT --header "PRIVATE-TOKEN: <token>" \\\n    "https://gitlab.example.com/api/v4/projects/<id>/push_rule" \\\n    --data-urlencode "branch_name_regex=${rules.pattern}"`);
+          console.log(`\nNote: exempt branches (${exempt.join(", ")}) should be protected branches — push rules don't apply to them.`);
+        } else if (host === "bitbucket") {
+          console.log(`Bitbucket branch restrictions (Repository settings → Branch restrictions), or via API:\n`);
+          console.log(JSON.stringify({ kind: "branch-name-pattern", pattern: rules.pattern, note: "Requires Premium; exempt: " + exempt.join(", ") }, null, 2));
+        } else {
+          fail(`unknown host '${opts.print}' — use github, gitlab, or bitbucket`);
+        }
+        break;
+      }
       default:
-        fail(`unknown action '${action}'. Use: connect | status | disconnect | show`);
+        fail(`unknown action '${action}'. Use: connect | status | disconnect | show | share | branch-rule`);
     }
   });
 
@@ -797,6 +1132,194 @@ program
       process.exit(1);
     }
     console.error(`🌿 aidimag: heads up — '${branch}' doesn't match the team's branch convention (${r.pattern}). Fix: ${fixHint}`);
+  });
+
+program
+  .command("generate-context")
+  .description("Render trustworthy memory into a static context file (CLAUDE.md, .cursorrules, copilot-instructions) for non-MCP AI tools")
+  .option("-f, --format <format>", "claude | cursorrules | copilot | all", "claude")
+  .option("--auto", "Also persist generateContext.auto in .aidimag/config.json so verify/review/sync keep it fresh")
+  .option("--no-auto", "Disable auto-regeneration (clears generateContext.auto)")
+  .action(async (opts) => {
+    const root = findRepoRoot() ?? fail("not inside a repo");
+    const store = MemoryStore.open(root);
+    const { generateContext } = await import("../context/generate.js");
+    const format = String(opts.format).toLowerCase();
+    if (!["claude", "cursorrules", "copilot", "all"].includes(format)) {
+      fail(`invalid --format '${opts.format}'. Use: claude | cursorrules | copilot | all`);
+    }
+    const r = generateContext(store, root, format as never);
+    console.log(`📝 Wrote ${r.files.join(", ")} — ${r.total} memories (${r.pinned} pinned).`);
+    if (r.total === 0) {
+      console.log("   (no verified memories yet — run `dim remember` or approve proposals with `dim review`)");
+    }
+    // commander sets opts.auto=false only when --no-auto is passed; undefined otherwise
+    if (opts.auto === true || opts.auto === false) {
+      const { writeConfig } = await import("../config.js");
+      writeConfig(root, { generateContext: opts.auto ? { auto: true, format: format as never } : { auto: false } });
+      console.log(
+        opts.auto
+          ? `🔄 Auto-regeneration ON — verify/review/sync will refresh ${format === "all" ? "the context files" : r.files[0]}.`
+          : `Auto-regeneration OFF.`
+      );
+    }
+    store.close();
+  });
+
+program
+  .command("check")
+  .description("Pre-commit contradiction check: scan the staged diff against active memories and guardrails")
+  .option("-r, --ref <ref>", "Diff against a ref instead of the staged index (e.g. HEAD~1)")
+  .option("--block", "Exit 1 when a hard violation is found (default: warn only)")
+  .option("--pre-commit", "Run in hook mode: behavior follows preCommitCheck in .aidimag/config.json (no-op if unset)", false)
+  .action(async (opts) => {
+    const root = findRepoRoot() ?? fail("not inside a git repo");
+    let block = Boolean(opts.block);
+    if (opts.preCommit) {
+      const { readConfig } = await import("../config.js");
+      const mode = readConfig(root).preCommitCheck;
+      if (!mode) return; // hook installed but feature disabled — silent no-op
+      block = mode === "block";
+    }
+    const store = MemoryStore.open(root);
+    const { checkDiff } = await import("../verify/check.js");
+    const report = checkDiff(store, root, { ref: opts.ref });
+    store.close();
+    if (report.changedFiles.length === 0) {
+      if (!opts.preCommit) console.log("dim check: no changes to check.");
+      return;
+    }
+    const fails = report.violations.filter((v) => v.severity === "fail");
+    const warns = report.violations.filter((v) => v.severity === "warn");
+    if (report.violations.length === 0) {
+      if (!opts.preCommit) {
+        console.log(`✓ dim check: ${report.checked} memorie(s) considered across ${report.changedFiles.length} file(s) — no conflicts.`);
+      }
+      return;
+    }
+    for (const v of fails) {
+      console.error(`✗ [${v.memory.kind}] ${v.detail}\n    "${v.memory.claim}"`);
+    }
+    for (const v of warns) {
+      console.error(`~ [${v.memory.kind}] ${v.detail}\n    "${v.memory.claim}"`);
+    }
+    if (fails.length && block) {
+      console.error(`\ndim check: ${fails.length} blocking violation(s). Resolve them or commit with --no-verify.`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("brief")
+  .description("Print a session-start briefing: in-scope memory, guardrails, stale warnings, and questions to ask")
+  .action(async () => {
+    const root = findRepoRoot() ?? fail("not inside a git repo");
+    const store = MemoryStore.open(root);
+    const { buildSessionBriefing, renderBriefing } = await import("../capture/session-briefing.js");
+    const briefing = buildSessionBriefing(store, root);
+    process.stdout.write(renderBriefing(briefing));
+    store.close();
+  });
+
+const knowledge = program
+  .command("knowledge")
+  .description("Manage the knowledge inbox: summarize dropped docs into reviewed, pinned memories")
+  .action(() => knowledge.help());
+
+knowledge
+  .command("sync", { isDefault: true })
+  .description("Process the knowledge inbox now: summarize new docs into proposals (review with `dim review`)")
+  .action(async () => {
+    const root = findRepoRoot() ?? fail("not inside a repo");
+    const store = MemoryStore.open(root);
+    const { ingestAll } = await import("../knowledge/ingest.js");
+    const report = await ingestAll(store, root, resolveKnowledgeConfig(root));
+    printIngestReport(report);
+    // Auto-approved knowledge (requireReview=false) becomes pinned memory → keep context fresh.
+    if (report.processed.some((d) => d.pinned)) {
+      await autoSync(store);
+      await maybeRegenerateContext(store);
+    }
+    store.close();
+  });
+
+knowledge
+  .command("status")
+  .description("Show pending / skipped / processed counts for the knowledge inbox")
+  .action(async () => {
+    const root = findRepoRoot() ?? fail("not inside a repo");
+    const { knowledgeStatus } = await import("../knowledge/ingest.js");
+    const s = knowledgeStatus(root, resolveKnowledgeConfig(root));
+    console.log(`Knowledge inbox: ${s.folder}/`);
+    console.log(`  pending      ${s.pending.length}${s.pending.length ? "  → run `dim knowledge sync`" : ""}`);
+    for (const p of s.pending) console.log(`    • ${p.file} (${p.bytes} bytes)`);
+    console.log(`  unsupported  ${s.unsupported.length}${s.unsupported.length ? "  (will move to skipped/ on next sync)" : ""}`);
+    for (const u of s.unsupported) console.log(`    • ${u.file} — ${u.reason}`);
+    console.log(`  skipped/     ${s.skippedOnDisk.length}`);
+    for (const f of s.skippedOnDisk) console.log(`    • ${f}`);
+    console.log(`  processed    ${s.processed.length}`);
+  });
+
+knowledge
+  .command("list")
+  .description("List processed knowledge docs and the memories they produced")
+  .action(async () => {
+    const root = findRepoRoot() ?? fail("not inside a repo");
+    const { readManifest } = await import("../knowledge/ingest.js");
+    const docs = readManifest(root).docs;
+    if (!docs.length) {
+      console.log("No knowledge docs processed yet. Drop files in the inbox and run `dim knowledge sync`.");
+      return;
+    }
+    for (const d of docs) {
+      const memo = d.memoryIds.length ? `${d.memoryIds.length} pinned` : `${d.proposalIds.length} proposed`;
+      console.log(`📄 ${d.file}  ·  ${d.claimCount} claim(s) (${memo})  ·  via ${d.via}  ·  ${d.date.slice(0, 10)}`);
+    }
+  });
+
+knowledge
+  .command("watch")
+  .description("Foreground watcher: process the inbox automatically whenever a doc is dropped (Ctrl-C to stop)")
+  .option("-d, --debounce <ms>", "Settle time before processing a batch of drops", "750")
+  .action(async (opts) => {
+    const root = findRepoRoot() ?? fail("not inside a repo");
+    const cfg = resolveKnowledgeConfig(root);
+    const inbox = path.join(root, cfg.folder);
+    mkdirSync(inbox, { recursive: true });
+    const { ingestAll } = await import("../knowledge/ingest.js");
+    const debounceMs = Math.max(100, parseInt(opts.debounce, 10) || 750);
+
+    let running = false;
+    let queued = false;
+    const run = async (): Promise<void> => {
+      if (running) { queued = true; return; }
+      running = true;
+      try {
+        const store = MemoryStore.open(root);
+        const report = await ingestAll(store, root, cfg);
+        if (report.processed.length || report.skipped.length || report.duplicates.length) {
+          printIngestReport(report);
+          if (report.processed.some((d) => d.pinned)) { await autoSync(store); await maybeRegenerateContext(store); }
+        }
+        store.close();
+      } catch (err) {
+        console.error(`dim knowledge watch: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        running = false;
+        if (queued) { queued = false; void run(); }
+      }
+    };
+
+    let timer: NodeJS.Timeout | undefined;
+    const { watch } = await import("node:fs");
+    const watcher = watch(inbox, { persistent: true }, () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void run(), debounceMs);
+    });
+    console.log(`👀 Watching ${cfg.folder}/ for dropped docs — Ctrl-C to stop.`);
+    await run(); // catch up on anything already sitting in the inbox
+    process.on("SIGINT", () => { watcher.close(); console.log("\nStopped."); process.exit(0); });
+    await new Promise(() => { /* run until SIGINT */ });
   });
 
 program

@@ -130,13 +130,18 @@ or REFUTED so agents are warned or blocked from using it.
 
 | Phase | Scope | Effort (w/ AI pair) |
 |---|---|---|
-| **0. Spec freeze** | this doc + tool schemas | done today |
-| **1. Skeleton** | MCP server, SQLite schema, memory_write/search, CLI | 1–2 sessions |
-| **2. Capture** | session-end extraction prompt + commit miner | 2–4 sessions |
-| **3. Verification v1** | STATIC_CHECK + COMMIT_REF runners, git-hook re-verify, status lifecycle | ~1 week |
-| **4. Pilot** | run on a real repo (e.g., PPMS monorepo), tune retrieval ranking | 1–2 weeks |
-| **5. Verification v2** | TEST_RESULT + sandboxed EXEC_TRACE evidence, confidence decay | 2–3 weeks |
-| **6. Team mode** | shared store sync, conflict/contradiction resolution | later |
+| **0. Spec freeze** | this doc + tool schemas | ✅ done |
+| **1. Skeleton** | MCP server, SQLite schema, memory_write/search, CLI | ✅ done |
+| **2. Capture** | session-end extraction prompt + commit miner | ✅ done |
+| **3. Verification v1** | STATIC_CHECK + COMMIT_REF runners, git-hook re-verify, status lifecycle | ✅ done |
+| **4. Pilot** | run on a real repo, tune retrieval ranking | ✅ done |
+| **5. Verification v2** | TEST_RESULT + sandboxed EXEC_TRACE evidence, confidence decay | ✅ done |
+| **6. Team mode** | shared store sync, device login, API keys, event log, consensus | ✅ done |
+| **7. Tickets** | Jira/GitHub/Linear/HTTP/Remote providers, branch enforcement, session-end awareness | ✅ done |
+| **8. IDE clients** | VSCode extension (Memory Explorer tree + detail webview) + IntelliJ plugin (native panel) | ✅ done |
+| **9. Pinned memories** | `dim pin`/`unpin`: exempt from time decay, still falsifiable by evidence | ✅ done |
+| **10. Karpathy layers** | `dim generate-context`, GUARDRAIL/SKILL kinds, `memory_critique`, `dim check`, session briefing | ✅ done — see [KARPATHY_LAYERS.md](./KARPATHY_LAYERS.md) |
+| **11. Knowledgebase ingestion** | `knowledge/` inbox → summarized into reviewed, pinned memories (agent/LLM summarizer, originals backed up) | ✅ shipped — see [KNOWLEDGEBASE_DESIGN.md](./KNOWLEDGEBASE_DESIGN.md) |
 
 **Realistic total to a pilotable v0.1 with the verification wedge: ~4–6 weeks part-time,
 2–3 weeks full-time** — because phases 1–3 are buildable on existing primitives

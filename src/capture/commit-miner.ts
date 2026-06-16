@@ -224,7 +224,10 @@ export function mineCommits(
       kind: hit.kind,
       claim: buildClaim(c, hit.kind),
       paths: scopeFromFiles(c.files),
-      evidence: [{ type: "COMMIT_REF", payload: c.sha }],
+      evidence: [
+        { type: "COMMIT_REF", payload: c.sha },
+        ...(ticketRef ? [{ type: "TICKET_REF" as const, payload: ticketRef }] : []),
+      ],
       source: "commit-miner",
       sourceRef: c.sha,
       rationale: `Matched signal "${hit.matched}" in commit ${c.sha.slice(0, 8)}: ${c.subject}`,

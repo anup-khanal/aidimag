@@ -16,6 +16,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -47,13 +48,20 @@ export interface BranchRules {
 }
 
 export interface TicketsConfig {
-  provider?: "jira" | "github" | "http";
+  provider?: "jira" | "github" | "linear" | "http" | "remote";
   /** ticket-id regex for branch/commit-message extraction */
   pattern?: string;
-  /** Jira site / GitHub repo URL / HttpProvider endpoint */
+  /** Jira site / GitHub repo URL / HttpProvider endpoint (unused for remote) */
   baseUrl?: string;
   branch?: BranchRules;
 }
+
+/** Where each provider's API token lives — used by the interactive connect flow. */
+export const TOKEN_PAGES: Record<string, string> = {
+  jira: "https://id.atlassian.com/manage-profile/security/api-tokens",
+  github: "https://github.com/settings/tokens",
+  linear: "https://linear.app/settings/account/security",
+};
 
 export const DEFAULT_TICKET_PATTERN = "[A-Z][A-Z0-9]+-\\d+";
 
@@ -115,6 +123,24 @@ export function extractTicketId(text: string, pattern: string = DEFAULT_TICKET_P
     return m ? m[0] : null;
   } catch {
     return null; // bad user regex — never break capture
+  }
+}
+
+/**
+ * Ticket id implied by the CURRENT branch (offline, instant). The best prompt
+ * is the one the branch name already answered — used by the MCP session-end
+ * flow and the VSCode extension.
+ */
+export function detectBranchTicket(repoRoot: string): string | null {
+  try {
+    const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return extractTicketId(branch, readTicketsConfig(repoRoot).pattern ?? DEFAULT_TICKET_PATTERN);
+  } catch {
+    return null; // detached HEAD / not a repo
   }
 }
 
@@ -227,21 +253,113 @@ class HttpProvider implements TicketProvider {
   }
 }
 
-/** Build the configured provider, or null when tickets aren't set up / no credential. */
-export function ticketProviderFor(repoRoot: string): TicketProvider | null {
-  const cfg = readTicketsConfig(repoRoot);
-  if (!cfg.provider || !cfg.baseUrl) return null;
-  const cred = getTicketCredential(cfg.baseUrl);
-  switch (cfg.provider) {
+/** Linear: GraphQL API, ids like ENG-123. Credential: a Linear API key. */
+class LinearProvider implements TicketProvider {
+  readonly name = "linear";
+  constructor(private credential: string) {}
+
+  async getTicket(id: string): Promise<Ticket | null> {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch("https://api.linear.app/graphql", {
+        method: "POST",
+        headers: { Authorization: this.credential, "Content-Type": "application/json" },
+        signal: ctl.signal,
+        body: JSON.stringify({
+          query: `query($id: String!) { issue(id: $id) {
+            identifier url title description
+            state { type } labels { nodes { name } }
+            parent { identifier title }
+          } }`,
+          variables: { id },
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status} from api.linear.app`);
+      const json = (await res.json()) as { data?: { issue?: Record<string, unknown> | null } };
+      const issue = json.data?.issue;
+      if (!issue) return null;
+      const stateType = String((issue.state as Record<string, unknown>)?.type ?? "");
+      const labels = (((issue.labels as Record<string, unknown>)?.nodes ?? []) as Array<{ name: string }>).map(
+        (l) => l.name
+      );
+      const parent = issue.parent as Record<string, unknown> | undefined;
+      return {
+        id: String(issue.identifier ?? id),
+        url: String(issue.url ?? ""),
+        title: String(issue.title ?? ""),
+        body: truncate(String(issue.description ?? "")),
+        type: labels.some((l) => l.toLowerCase().includes("bug")) ? "bug" : "story",
+        status: stateType === "completed" || stateType === "canceled" ? "done" : stateType === "started" ? "in_progress" : "open",
+        labels,
+        parent: parent ? { id: String(parent.identifier), title: String(parent.title ?? "") } : undefined,
+      };
+    } finally {
+      clearTimeout(t);
+    }
+  }
+}
+
+/** T3: asks the team sync server — credentials live server-side, members reuse their sync token. */
+class RemoteProvider implements TicketProvider {
+  readonly name = "remote";
+  constructor(private server: string, private brain: string, private token: string) {}
+
+  async getTicket(id: string): Promise<Ticket | null> {
+    const raw = await fetchJson(
+      `${this.server}/v1/ticket?brain=${encodeURIComponent(this.brain)}&id=${encodeURIComponent(id)}`,
+      { Authorization: `Bearer ${this.token}`, Accept: "application/json" }
+    );
+    return raw ? (raw as unknown as Ticket) : null;
+  }
+}
+
+/**
+ * Build a direct (non-remote) provider from raw parts — used locally AND by
+ * the sync server's /v1/ticket proxy (T3), so adapter logic lives in one place.
+ */
+export function buildDirectProvider(
+  provider: string,
+  baseUrl: string,
+  credential: string | null
+): TicketProvider | null {
+  switch (provider) {
     case "jira":
-      return cred ? new JiraProvider(cfg.baseUrl.replace(/\/$/, ""), cred) : null;
+      return credential ? new JiraProvider(baseUrl.replace(/\/$/, ""), credential) : null;
     case "github":
-      return cred ? new GitHubProvider(cfg.baseUrl, cred) : null;
+      return credential ? new GitHubProvider(baseUrl, credential) : null;
+    case "linear":
+      return credential ? new LinearProvider(credential) : null;
     case "http":
-      return new HttpProvider(cfg.baseUrl, cred); // credential optional for internal services
+      return new HttpProvider(baseUrl, credential); // credential optional for internal services
     default:
       return null;
   }
+}
+
+/** Build the configured provider, or null when tickets aren't set up / no credential. */
+export function ticketProviderFor(repoRoot: string): TicketProvider | null {
+  const cfg = readTicketsConfig(repoRoot);
+  if (!cfg.provider) return null;
+  if (cfg.provider === "remote") {
+    // lazy import avoids a cycle: sync/client imports nothing from tickets
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    try {
+      const p = path.join(repoRoot, ".aidimag", "config.json");
+      const raw = JSON.parse(readFileSync(p, "utf8")) as { server?: string; brain?: string };
+      if (!raw.server || !raw.brain) return null;
+      const token =
+        process.env.AIDIMAG_API_KEY ??
+        (JSON.parse(readFileSync(credentialsPath(), "utf8"))[raw.server] as string | undefined) ??
+        null;
+      return token ? new RemoteProvider(raw.server, raw.brain, token) : null;
+    } catch {
+      return null;
+    }
+  }
+  if (!cfg.baseUrl && cfg.provider !== "linear") return null;
+  const credKey = cfg.baseUrl ?? "linear";
+  return buildDirectProvider(cfg.provider, cfg.baseUrl ?? "", getTicketCredential(credKey));
 }
 
 // ---------------------------------------------------------------- branch convention (T1.5)

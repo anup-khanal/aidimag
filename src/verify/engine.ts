@@ -107,7 +107,7 @@ export function verifyMemory(
     // verified_at — re-running verify must not refresh human trust.
     if (memory.verifiedAt === null && memory.status === "UNVERIFIED") {
       after = "VERIFIED";
-    } else {
+    } else if (!memory.pinned) {
       const next = decayedConfidence(
         memory.confidence,
         memory.verifiedAt ?? memory.createdAt,
@@ -119,8 +119,10 @@ export function verifyMemory(
         if (memory.status === "VERIFIED" && next < DEMOTION_THRESHOLD) after = "UNVERIFIED";
       }
     }
-  } else {
-    // nothing machine-checkable ran this round → decay with age
+  } else if (!memory.pinned) {
+    // nothing machine-checkable ran this round → decay with age.
+    // Pinned memories are exempt: the clock can't erode them — only a
+    // failing evidence run (handled above) can mark them STALE.
     const halfLife = isHumanOnly(memory) ? DECAY_HALF_LIFE_HUMAN_DAYS : DECAY_HALF_LIFE_DAYS;
     const anchor = memory.verifiedAt ?? memory.createdAt;
     const next = decayedConfidence(memory.confidence, anchor, halfLife);

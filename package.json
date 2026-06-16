@@ -19,7 +19,10 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "mcp": "node dist/mcp/server.js",
-    "test": "node --test dist/test/"
+    "test": "node --test dist/test/",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "keywords": [
     "mcp",
@@ -41,6 +44,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^20.0.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitepress": "^1.6.3"
   }
 }

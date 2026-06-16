@@ -1,9 +1,12 @@
 # Tickets Design — ticket-aware memory capture
 
-> Status: T1, T1.5, and core T2 **implemented** (2026-06-11) — see the phasing
-> table. Remaining: RemoteProvider via sync server (T3), HttpProvider contract
-> doc + Linear (T4), TICKET_REF evidence type (needs evidence-table CHECK
-> migration), interactive `dim ticket connect` browser flow.
+> Status: T1–T5 **implemented** (2026-06-12) — see the phasing table.
+> TICKET_REF evidence (v6 schema migration), interactive `dim ticket connect`,
+> Linear, RemoteProvider via the sync server (`dim ticket share` + dashboard
+> config UI), `dim ticket branch-rule --print`, the public HttpProvider
+> contract doc (HTTP_PROVIDER.md), and agent-side session-end ticket awareness
+> (MCP `ticket_get` + auto ticket_ref tagging) all shipped. Remaining: the
+> open questions below (multi-pattern repos, redaction, body truncation).
 
 ## Motivation
 
@@ -242,10 +245,10 @@ Design choices:
 |---|---|
 | T1 ✅ | `TicketProvider` interface + ticket-id extraction in the post-commit miner (per-commit from the message; branch-name fallback on incremental mines; stored as `proposals.ticket_ref`; no network) |
 | T1.5 ✅ | Branch convention enforcement: `pre-push` block + `post-checkout` warn via hidden `dim branch-check` (`tickets.branch.{pattern,exempt,enforce}` in committed config); `dim branch <ticket-id>` helper (id-only without a provider; title slug with one) |
-| T2 ✅ (core) | JiraProvider + GitHubProvider + HttpProvider, `dim ticket connect/status/disconnect/show` (flag-based), lazy enrichment in interactive review (5s timeout, offline-safe). Remaining: `TICKET_REF` evidence type (evidence-table CHECK migration), interactive browser connect flow |
-| T3 | RemoteProvider via sync server (team-shared credentials, caching); dashboard config UI; `dim ticket branch-rule --print github\|gitlab` for server-side rule generation |
-| T4 | HttpProvider contract doc (public, versioned); Linear + others as demand shows |
-| T5 | Conversational review (`dim review` interactive rewording) ✅ shipped early with the NL layer; agent-side session-end ticket awareness remains |
+| T2 ✅ | JiraProvider + GitHubProvider + HttpProvider, `dim ticket connect/status/disconnect/show` (interactive connect: prompts, opens the API-token page, validates with a live round-trip; flags for scripts), lazy enrichment in interactive review (5s timeout, offline-safe), `TICKET_REF` evidence type (v6 evidence-table CHECK rebuild; annotation-only — never flips status) |
+| T3 ✅ | RemoteProvider via sync server (`/v1/ticket` + `/v1/ticket-config`, 10-min cache, team credentials server-side); `dim ticket share [--remove]` (admin) + `dim ticket connect remote` (members, zero local creds); dashboard 🎫 Tickets config UI; `dim ticket branch-rule [--pattern --enforce --exempt] --print github\|gitlab\|bitbucket` |
+| T4 ✅ (core) | HttpProvider contract doc (HTTP_PROVIDER.md, public, versioned v1); LinearProvider (GraphQL). Other adapters as demand shows |
+| T5 ✅ | Conversational review (`dim review` interactive rewording, shipped early with the NL layer); agent-side session-end ticket awareness: MCP `ticket_get` (auto-detects the branch's ticket, degrades gracefully offline), `memory_propose` auto-tags `ticket_ref` + `TICKET_REF` evidence, ticket-aware `session_end_extraction` prompt |
 
 ## Open questions
 

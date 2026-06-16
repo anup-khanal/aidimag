@@ -8,10 +8,23 @@
  */
 
 import { createServer } from "node:http";
+import { watch, mkdirSync } from "node:fs";
+import path from "node:path";
 import { verifyAll } from "../verify/engine.js";
 import { mineCommits } from "../capture/commit-miner.js";
 import { hybridSearch, indexMemory, reindexAll } from "../embeddings/search.js";
 import { readCloudConfig, writeCloudConfig, saveToken, getToken, sync as cloudSync } from "../sync/client.js";
+import { resolveKnowledgeConfig } from "../config.js";
+import { ingestAll } from "../knowledge/ingest.js";
+import {
+  readTicketsConfig,
+  writeTicketsConfig,
+  saveTicketCredential,
+  getTicketCredential,
+  ticketProviderFor,
+  DEFAULT_TICKET_PATTERN,
+  type TicketsConfig,
+} from "../tickets/provider.js";
 import type { MemoryStore } from "../db/store.js";
 import type { MemoryKind } from "../types.js";
 import { PAGE_HTML } from "./page.js";
@@ -49,6 +62,39 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
     timer.unref(); // never keep the process alive on its own
   }
 
+  // Knowledge inbox watcher: auto-summarize docs dropped while the dashboard is up
+  // (the design's "automatic on drop while a long-running host is running" trigger).
+  // Best-effort and debounced; failures are silent, the next `dim knowledge sync` retries.
+  {
+    const cfg = resolveKnowledgeConfig(repoRoot);
+    const inbox = path.join(repoRoot, cfg.folder);
+    try {
+      mkdirSync(inbox, { recursive: true });
+      let running = false;
+      let queued = false;
+      let debounce: NodeJS.Timeout | undefined;
+      const drain = async (): Promise<void> => {
+        if (running) { queued = true; return; }
+        running = true;
+        try {
+          const report = await ingestAll(store, repoRoot, cfg);
+          if (report.processed.length) {
+            console.log(`dim ui: ingested ${report.processed.length} knowledge doc(s) → review queue`);
+          }
+        } catch { /* best-effort */ } finally {
+          running = false;
+          if (queued) { queued = false; void drain(); }
+        }
+      };
+      const watcher = watch(inbox, { persistent: false }, () => {
+        if (debounce) clearTimeout(debounce);
+        debounce = setTimeout(() => void drain(), 750);
+      });
+      watcher.unref?.();
+      void drain(); // catch up on anything already waiting
+    } catch { /* watch unsupported on this platform — CLI sync still works */ }
+  }
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost:${port}`);
     const path = url.pathname;
@@ -62,6 +108,7 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
 
       if (req.method === "GET" && path === "/api/state") {
         const cloud = readCloudConfig(repoRoot);
+        const tcfg = readTicketsConfig(repoRoot);
         json(res, 200, {
           repoRoot,
           memories: store.list(1000),
@@ -69,6 +116,18 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
           summary: store.statusSummary(),
           cloud: cloud
             ? { server: cloud.server, brain: cloud.brain, hasToken: !!getToken(cloud.server) }
+            : null,
+          tickets: tcfg.provider
+            ? {
+                provider: tcfg.provider,
+                baseUrl: tcfg.baseUrl ?? null,
+                pattern: tcfg.pattern ?? DEFAULT_TICKET_PATTERN,
+                hasCredential:
+                  tcfg.provider === "remote"
+                    ? !!(cloud && getToken(cloud.server))
+                    : !!getTicketCredential(tcfg.baseUrl ?? "linear"),
+                branch: tcfg.branch ?? null,
+              }
             : null,
           vecAvailable: store.vecAvailable,
         });
@@ -158,6 +217,89 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
         return;
       }
 
+      // ---- tickets (T2 connect + T3 team share) ----
+      if (req.method === "POST" && path === "/api/tickets/connect") {
+        const b = await readBody(req);
+        const provider = String(b.provider ?? "");
+        if (!["jira", "github", "linear", "http", "remote"].includes(provider)) {
+          json(res, 400, { error: "provider must be jira | github | linear | http | remote" });
+          return;
+        }
+        const baseUrl = b.baseUrl ? String(b.baseUrl).replace(/\/$/, "") : undefined;
+        if (!baseUrl && !["linear", "remote"].includes(provider)) {
+          json(res, 400, { error: `baseUrl is required for ${provider}` });
+          return;
+        }
+        const existing = readTicketsConfig(repoRoot);
+        writeTicketsConfig(repoRoot, {
+          ...existing,
+          provider: provider as TicketsConfig["provider"],
+          baseUrl,
+          pattern:
+            (b.pattern as string | undefined) ??
+            existing.pattern ??
+            (provider === "github" ? "#\\d+" : DEFAULT_TICKET_PATTERN),
+        });
+        if (b.token) saveTicketCredential(baseUrl ?? "linear", String(b.token));
+        // trust-building: optional live validation round-trip
+        let validated: { id: string; title: string } | null = null;
+        if (b.testId) {
+          const p = ticketProviderFor(repoRoot);
+          const t = p ? await p.getTicket(String(b.testId)).catch(() => null) : null;
+          if (t) validated = { id: t.id, title: t.title };
+        }
+        json(res, 200, { ok: true, validated });
+        return;
+      }
+      if (req.method === "POST" && path === "/api/tickets/disconnect") {
+        const existing = readTicketsConfig(repoRoot);
+        writeTicketsConfig(repoRoot, { branch: existing.branch }); // keep branch rules
+        json(res, 200, { ok: true });
+        return;
+      }
+      if (req.method === "GET" && path === "/api/tickets/show") {
+        const ticketId = url.searchParams.get("id");
+        if (!ticketId) {
+          json(res, 400, { error: "missing ?id=" });
+          return;
+        }
+        const p = ticketProviderFor(repoRoot);
+        if (!p) {
+          json(res, 400, { error: "no ticket provider connected (or credential missing)" });
+          return;
+        }
+        const t = await p.getTicket(ticketId);
+        if (!t) json(res, 404, { error: `ticket ${ticketId} not found` });
+        else json(res, 200, { ticket: t });
+        return;
+      }
+      // admin: push/remove team-shared credentials on the sync server
+      // (proxied like /api/keys — the admin token is per-request, never stored)
+      if (req.method === "POST" && path === "/api/tickets/share") {
+        const b = await readBody(req);
+        const cloud = readCloudConfig(repoRoot);
+        if (!cloud) {
+          json(res, 400, { error: "repo is not cloud-linked — link a team server first" });
+          return;
+        }
+        const admin = String(b.adminToken ?? "");
+        if (!admin) {
+          json(res, 400, { error: "adminToken is required" });
+          return;
+        }
+        const endpoint = `${cloud.server}/v1/ticket-config?brain=${encodeURIComponent(cloud.brain)}`;
+        const headers = { "Content-Type": "application/json", Authorization: `Bearer ${admin}` };
+        const upstream = b.remove
+          ? await fetch(endpoint, { method: "DELETE", headers })
+          : await fetch(endpoint, {
+              method: "PUT",
+              headers,
+              body: JSON.stringify({ provider: b.provider, baseUrl: b.baseUrl ?? "", credential: b.credential }),
+            });
+        json(res, upstream.status, await upstream.json());
+        return;
+      }
+
       // ---- API key management (proxies to the sync server; admin token is
       //      passed per-request from the UI and never stored) ----
       if (path === "/api/keys") {
@@ -201,8 +343,8 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
         return;
       }
 
-      // POST /api/memories/:id/(refute|forget)
-      const memMatch = path.match(/^\/api\/memories\/([^/]+)\/(refute|forget)$/);
+      // POST /api/memories/:id/(refute|forget|pin|unpin)
+      const memMatch = path.match(/^\/api\/memories\/([^/]+)\/(refute|forget|pin|unpin)$/);
       if (req.method === "POST" && memMatch) {
         const [, id, action] = memMatch;
         const full = store.list(1000).find((m) => m.id === id || m.id.startsWith(id));
@@ -211,7 +353,8 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
           return;
         }
         if (action === "refute") store.refute(full.id);
-        else store.forget(full.id);
+        else if (action === "forget") store.forget(full.id);
+        else store.setPinned(full.id, action === "pin");
         json(res, 200, { ok: true });
         return;
       }

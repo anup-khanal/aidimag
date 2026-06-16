@@ -9,16 +9,25 @@ export type MemoryKind =
   | "FAILED_APPROACH"
   | "ARCHITECTURE"
   | "INVARIANT"
-  | "TODO_CONTEXT";
+  | "TODO_CONTEXT"
+  | "GUARDRAIL"
+  | "SKILL";
 
 export type MemoryStatus = "VERIFIED" | "UNVERIFIED" | "STALE" | "REFUTED";
+
+/**
+ * Guardrail enforcement level (Karpathy's always/ask-first/never bucket).
+ * Only meaningful when kind === "GUARDRAIL".
+ */
+export type GuardrailLevel = "always" | "ask-first" | "never";
 
 export type EvidenceType =
   | "COMMIT_REF"
   | "TEST_RESULT"
   | "EXEC_TRACE"
   | "STATIC_CHECK"
-  | "HUMAN_ATTESTED";
+  | "HUMAN_ATTESTED"
+  | "TICKET_REF";
 
 export type EvidenceResult = "PASS" | "FAIL" | "UNKNOWN";
 
@@ -55,6 +64,12 @@ export interface MemoryEntry {
   scope: MemoryScope;
   confidence: number; // 0..1, decays without re-verification
   status: MemoryStatus;
+  /**
+   * Pinned memories are exempt from time-based confidence decay (they never
+   * demote to UNVERIFIED just from age) — but evidence failure still marks
+   * them STALE. "Never decays" ≠ "never falsifiable".
+   */
+  pinned: boolean;
   createdBy: string; // agent-id | "human"
   createdAt: string;
   verifiedAt: string | null;
@@ -63,6 +78,8 @@ export interface MemoryEntry {
   updatedAt: string | null;
   grounding: Evidence[];
   links: MemoryLink[];
+  /** enforcement level — present only when kind === "GUARDRAIL" */
+  guardrailLevel?: GuardrailLevel;
 }
 
 export interface MemoryWriteInput {
@@ -72,6 +89,10 @@ export interface MemoryWriteInput {
   symbols?: string[];
   createdBy?: string;
   evidence?: Array<{ type: EvidenceType; payload: string }>;
+  /** create the memory pinned (exempt from time decay) */
+  pinned?: boolean;
+  /** required when kind === "GUARDRAIL": always | ask-first | never */
+  guardrailLevel?: GuardrailLevel;
 }
 
 export interface MemorySearchOptions {
@@ -88,6 +109,8 @@ export interface MemoryStatusSummary {
   total: number;
   byStatus: Record<MemoryStatus, number>;
   byKind: Partial<Record<MemoryKind, number>>;
+  /** memories exempt from time decay */
+  pinned?: number;
   dbPath: string;
   pendingProposals?: number;
 }
@@ -110,6 +133,8 @@ export interface ProposalInput {
   rationale?: string;
   /** ticket id (e.g. XXX-2100) extracted from branch/commit message */
   ticketRef?: string;
+  /** enforcement level for GUARDRAIL proposals */
+  guardrailLevel?: GuardrailLevel;
 }
 
 export interface Proposal extends ProposalInput {

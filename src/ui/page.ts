@@ -16,13 +16,14 @@ export const PAGE_HTML = /* html */ `<!DOCTYPE html>
   }
   * { box-sizing: border-box; margin: 0; }
   body { background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; height: 100vh; display: flex; flex-direction: column; }
-  header { display: flex; align-items: center; gap: 16px; padding: 10px 18px; border-bottom: 1px solid var(--border); }
+  header { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; padding: 10px 18px; border-bottom: 1px solid var(--border); }
   header h1 { font-size: 16px; font-weight: 600; }
   header h1 span { color: var(--dim); font-weight: 400; font-size: 12px; margin-left: 8px; }
-  .pill { padding: 2px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); }
+  .pill { padding: 2px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); white-space: nowrap; }
   .pill b { font-weight: 600; }
   .spacer { flex: 1; }
-  button { background: #21262d; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+  button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; background: #21262d; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+  button svg { width: 14px; height: 14px; flex: 0 0 auto; }
   button:hover { background: #30363d; }
   button.primary { background: #1f6feb; border-color: #1f6feb; }
   button.danger:hover { background: #f8514922; border-color: var(--refuted); }
@@ -67,14 +68,15 @@ export const PAGE_HTML = /* html */ `<!DOCTYPE html>
   <h1>🧠 aidimag <span id="repo"></span></h1>
   <span class="pill" id="counts"></span>
   <div class="spacer"></div>
-  <button class="primary" onclick="document.getElementById('dlg-new').showModal()">＋ New memory</button>
-  <button onclick="runMine()">Mine commits</button>
-  <button class="primary" onclick="runVerify(false)">Verify</button>
-  <button onclick="runVerify(true)">Verify --deep</button>
-  <button onclick="runSync()" id="btn-sync">Sync</button>
-  <button onclick="runReindex()">Reindex</button>
-  <button onclick="openCloud()">☁ Cloud</button>
-  <button onclick="load()">Refresh</button>
+  <button class="primary" onclick="document.getElementById('dlg-new').showModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>New memory</button>
+  <button onclick="runMine()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5 18 9"/><path d="M2 22l8-8"/><path d="M20.5 7.5 22 6a2.83 2.83 0 0 0-4-4l-1.5 1.5"/><path d="m9 11 4 4"/><path d="M16 2 8.5 9.5"/></svg>Mine commits</button>
+  <button class="primary" onclick="runVerify(false)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/></svg>Verify</button>
+  <button onclick="runVerify(true)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="m8 11 2 2 4-4"/></svg>Verify --deep</button>
+  <button onclick="runSync()" id="btn-sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>Sync</button>
+  <button onclick="runReindex()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>Reindex</button>
+  <button onclick="openCloud()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>Cloud</button>
+  <button onclick="openTickets()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>Tickets</button>
+  <button onclick="load()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>Refresh</button>
 </header>
 <main>
   <div id="graph"></div>
@@ -147,6 +149,47 @@ export const PAGE_HTML = /* html */ `<!DOCTYPE html>
   </div>
 </dialog>
 
+<!-- Tickets dialog (dim ticket connect / share) -->
+<dialog id="dlg-tickets">
+  <h3>🎫 Tickets</h3>
+  <div id="tk-status" class="hint"></div>
+  <label>Provider</label>
+  <select id="tk-provider" onchange="ticketsProviderHint()">
+    <option value="jira">Jira</option>
+    <option value="github">GitHub Issues</option>
+    <option value="linear">Linear</option>
+    <option value="http">HTTP middleware (your own)</option>
+    <option value="remote">Remote (team sync server — zero local credentials)</option>
+  </select>
+  <div id="tk-url-row">
+    <label id="tk-url-label">Base URL</label>
+    <input id="tk-url" placeholder="https://acme.atlassian.net">
+  </div>
+  <div id="tk-token-row">
+    <label id="tk-token-label">Credential (stored on this machine only, never in the repo)</label>
+    <input id="tk-token" type="password" placeholder="email:apiToken">
+  </div>
+  <label>Ticket-id pattern (extracted from branch names &amp; commit messages)</label>
+  <input id="tk-pattern" placeholder="[A-Z][A-Z0-9]+-\\\\d+">
+  <label>Validate with a real ticket id (optional)</label>
+  <input id="tk-test" placeholder="XXX-2100">
+  <div class="dialog-actions">
+    <button onclick="ticketsDisconnect()">Disconnect</button>
+    <button class="primary" onclick="ticketsConnect()">Connect</button>
+  </div>
+  <h3 style="margin-top:18px">👥 Team credentials (admin)</h3>
+  <div class="hint">Stores the provider + token on the linked sync server — teammates connect with provider “remote” and never hold a ticket credential.</div>
+  <label>Admin token (used for this request only — not stored)</label>
+  <input id="tk-admin" type="password" placeholder="server admin token">
+  <div class="ev-row">
+    <button class="primary" onclick="ticketsShare()">Share current config</button>
+    <button class="danger" onclick="ticketsShare(true)">Remove from server</button>
+  </div>
+  <div class="dialog-actions">
+    <button onclick="document.getElementById('dlg-tickets').close()">Close</button>
+  </div>
+</dialog>
+
 <div class="legend">
   <span><span class="dot" style="background:var(--verified)"></span>VERIFIED</span>
   <span><span class="dot" style="background:var(--unverified)"></span>UNVERIFIED</span>
@@ -192,7 +235,7 @@ function renderProposals() {
   el.innerHTML = state.proposals.map(p => \`
     <div class="card">
       <div class="claim">\${esc(p.claim)}</div>
-      <div class="meta"><span class="kind">\${p.kind}</span><span>via \${esc(p.source)}</span></div>
+      <div class="meta"><span class="kind">\${p.kind}</span><span>via \${esc(p.source)}</span>\${p.ticketRef ? \`<span>🎫 \${esc(p.ticketRef)}</span>\` : ""}</div>
       <div class="actions">
         <button class="primary" onclick="act('/api/proposals/\${p.id}/approve','approved')">Approve</button>
         <button class="danger" onclick="act('/api/proposals/\${p.id}/reject','rejected')">Reject</button>
@@ -209,12 +252,16 @@ function renderMemories(list) {
       <div class="claim">\${esc(m.claim)}</div>
       <div class="meta">
         <span class="badge \${m.status}">\${m.status}</span>
+        \${m.pinned ? '<span class="badge" title="Pinned: never decays with age (evidence failure can still mark it stale)">📌 PINNED</span>' : ""}
         <span class="kind">\${m.kind}</span>
         <span>conf \${m.confidence.toFixed(2)}</span>
         \${m.scope.paths.length ? "<span>📁 " + esc(m.scope.paths.join(", ")) + "</span>" : "<span>repo-wide</span>"}
       </div>
       \${m.grounding.map(e => \`<div class="evidence">\${e.type}(\${e.result}) \${esc(e.payload)}</div>\`).join("")}
       <div class="actions">
+        \${m.pinned
+          ? \`<button onclick="act('/api/memories/\${m.id}/unpin','unpinned')">Unpin</button>\`
+          : \`<button onclick="act('/api/memories/\${m.id}/pin','pinned 📌')">Pin</button>\`}
         \${m.status !== "REFUTED" ? \`<button class="danger" onclick="act('/api/memories/\${m.id}/refute','refuted')">Refute</button>\` : ""}
         <button class="danger" onclick="if(confirm('Delete permanently?'))act('/api/memories/\${m.id}/forget','forgotten')">Forget</button>
       </div>
@@ -381,6 +428,82 @@ async function keyList() {
     document.getElementById("keys-out").innerHTML = r.keys.length
       ? r.keys.map(k => \`<div class="keyrow"><span>\${k.revoked_at ? "✗" : "✓"} \${esc(k.key)} → \${esc(k.brain)}\${k.label ? " (" + esc(k.label) + ")" : ""}</span></div>\`).join("")
       : '<div class="hint">No keys yet.</div>';
+  } catch (e) { toast("Error: " + e.message); }
+}
+
+// ---------------------------------------------------------------- tickets
+
+const TK_HINTS = {
+  jira:   { url: "Jira site URL", urlPh: "https://acme.atlassian.net", token: "email:apiToken (or a PAT)", needUrl: true,  needToken: true },
+  github: { url: "Repo URL", urlPh: "https://github.com/acme/api", token: "GitHub token (repo read)", needUrl: true,  needToken: true },
+  linear: { url: "", urlPh: "", token: "Linear API key", needUrl: false, needToken: true },
+  http:   { url: "Middleware endpoint (GET /ticket/:id)", urlPh: "https://tickets.internal.acme.com", token: "Bearer token (optional)", needUrl: true, needToken: true },
+  remote: { url: "", urlPh: "", token: "", needUrl: false, needToken: false },
+};
+
+function ticketsProviderHint() {
+  const h = TK_HINTS[document.getElementById("tk-provider").value];
+  document.getElementById("tk-url-row").style.display = h.needUrl ? "" : "none";
+  document.getElementById("tk-token-row").style.display = h.needToken ? "" : "none";
+  if (h.needUrl) {
+    document.getElementById("tk-url-label").textContent = h.url;
+    document.getElementById("tk-url").placeholder = h.urlPh;
+  }
+  if (h.needToken) document.getElementById("tk-token-label").textContent = h.token + " — stored on this machine only, never in the repo";
+}
+
+function openTickets() {
+  const t = state && state.tickets;
+  document.getElementById("tk-status").textContent = t
+    ? \`Connected: \${t.provider}\${t.baseUrl ? " at " + t.baseUrl : ""} (\${t.hasCredential ? "credential stored" : "⚠ NO CREDENTIAL"})\`
+    : "No ticketing app connected — proposals will miss the why from your tickets.";
+  if (t) {
+    document.getElementById("tk-provider").value = t.provider;
+    if (t.baseUrl) document.getElementById("tk-url").value = t.baseUrl;
+    document.getElementById("tk-pattern").value = t.pattern || "";
+  }
+  ticketsProviderHint();
+  document.getElementById("dlg-tickets").showModal();
+}
+
+async function ticketsConnect() {
+  try {
+    const r = await api("/api/tickets/connect", {
+      method: "POST",
+      body: JSON.stringify({
+        provider: document.getElementById("tk-provider").value,
+        baseUrl: document.getElementById("tk-url").value.trim() || undefined,
+        token: document.getElementById("tk-token").value.trim() || undefined,
+        pattern: document.getElementById("tk-pattern").value.trim() || undefined,
+        testId: document.getElementById("tk-test").value.trim() || undefined,
+      }),
+    });
+    document.getElementById("tk-token").value = "";
+    toast(r.validated ? \`Connected ✓ validated with \${r.validated.id}: \${r.validated.title}\` : "Tickets connected");
+    load(); openTickets();
+  } catch (e) { toast("Error: " + e.message); }
+}
+
+async function ticketsDisconnect() {
+  try { await api("/api/tickets/disconnect", { method: "POST" }); toast("Tickets disconnected"); load(); openTickets(); }
+  catch (e) { toast("Error: " + e.message); }
+}
+
+async function ticketsShare(remove) {
+  const adminToken = document.getElementById("tk-admin").value.trim();
+  if (!adminToken) { toast("Admin token required"); return; }
+  try {
+    await api("/api/tickets/share", {
+      method: "POST",
+      body: JSON.stringify(remove ? { adminToken, remove: true } : {
+        adminToken,
+        provider: document.getElementById("tk-provider").value,
+        baseUrl: document.getElementById("tk-url").value.trim() || undefined,
+        credential: document.getElementById("tk-token").value.trim() || undefined,
+      }),
+    });
+    document.getElementById("tk-token").value = "";
+    toast(remove ? "Team ticket config removed" : "Team credentials stored on the server — teammates use provider 'remote'");
   } catch (e) { toast("Error: " + e.message); }
 }
 

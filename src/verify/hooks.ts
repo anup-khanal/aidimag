@@ -18,9 +18,13 @@ import path from "node:path";
 export const HOOK_MARKER = "# >>> aidimag verify hook >>>";
 export const CAPTURE_HOOK_MARKER = "# >>> aidimag capture hook >>>";
 export const BRANCH_HOOK_MARKER = "# >>> aidimag branch hook >>>";
+export const PRECOMMIT_HOOK_MARKER = "# >>> aidimag check hook >>>";
+export const KNOWLEDGE_HOOK_MARKER = "# >>> aidimag knowledge hook >>>";
 const VERIFY_HOOK_NAMES = ["post-merge", "post-checkout", "post-rewrite"] as const;
 const CAPTURE_HOOK_NAME = "post-commit";
 const BRANCH_PUSH_HOOK_NAME = "pre-push";
+const PRECOMMIT_HOOK_NAME = "pre-commit";
+const KNOWLEDGE_HOOK_NAME = "post-merge";
 
 function hookBlock(): string {
   return [
@@ -64,6 +68,30 @@ function branchPushHookBlock(): string {
   ].join("\n");
 }
 
+/** pre-commit: scan the staged diff against memory/guardrails. No-op unless
+ *  preCommitCheck is enabled in .aidimag/config.json (warn or block). */
+function preCommitHookBlock(): string {
+  return [
+    PRECOMMIT_HOOK_MARKER,
+    "# Scans the staged diff against active memories + guardrails (shift-left verifier).",
+    "# Behavior follows preCommitCheck in .aidimag/config.json (unset = no-op).",
+    "command -v dim >/dev/null 2>&1 && { dim check --pre-commit || exit 1; } || true",
+    "# <<< aidimag check hook <<<",
+    "",
+  ].join("\n");
+}
+
+/** post-merge: catch-up summarization of any docs sitting in the knowledge inbox. */
+function knowledgeHookBlock(): string {
+  return [
+    KNOWLEDGE_HOOK_MARKER,
+    "# Summarizes newly-pulled knowledge-inbox docs into review proposals (best-effort, never blocks).",
+    "command -v dim >/dev/null 2>&1 && dim knowledge sync >/dev/null 2>&1 || true",
+    "# <<< aidimag knowledge hook <<<",
+    "",
+  ].join("\n");
+}
+
 export interface HookInstallResult {
   installed: string[];
   alreadyPresent: string[];
@@ -101,6 +129,10 @@ export function installGitHooks(repoRoot: string): HookInstallResult {
   // branch convention (T1.5): warn at creation (post-checkout), gate at push
   install("post-checkout", BRANCH_HOOK_MARKER, branchWarnHookBlock());
   install(BRANCH_PUSH_HOOK_NAME, BRANCH_HOOK_MARKER, branchPushHookBlock());
+  // shift-left verifier: scan staged diff before the commit lands (opt-in via config)
+  install(PRECOMMIT_HOOK_NAME, PRECOMMIT_HOOK_MARKER, preCommitHookBlock());
+  // knowledge catch-up: summarize freshly-pulled inbox docs after a merge/pull
+  install(KNOWLEDGE_HOOK_NAME, KNOWLEDGE_HOOK_MARKER, knowledgeHookBlock());
   result.installed = [...new Set(result.installed)];
   result.alreadyPresent = [...new Set(result.alreadyPresent)].filter((n) => !result.installed.includes(n));
   return result;

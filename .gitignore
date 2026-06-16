@@ -5,3 +5,10 @@ dist/
 .DS_Store
 
 .idea/
+intellij-plugin/.gradle/
+intellij-plugin/build/
+
+# VitePress docs build output + cache
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+

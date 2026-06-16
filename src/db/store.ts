@@ -9,9 +9,10 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import path from "node:path";
-import { SCHEMA_SQL, SCHEMA_VERSION, MIGRATIONS } from "./schema.js";
+import { SCHEMA_SQL, SCHEMA_VERSION, MIGRATIONS, EVIDENCE_REBUILD_V6, MEMORIES_REBUILD_V8, PROPOSALS_REBUILD_V8 } from "./schema.js";
 import type {
   Evidence,
+  GuardrailLevel,
   MemoryEntry,
   MemoryKind,
   MemoryLink,
@@ -101,6 +102,8 @@ interface MemoryRow {
   verified_at: string | null;
   superseded_by: string | null;
   updated_at?: string | null;
+  pinned?: number;
+  guardrail_level?: string | null;
 }
 
 export class MemoryStore {
@@ -122,6 +125,16 @@ export class MemoryStore {
       // vector search unavailable on this platform — FTS-only mode
     }
     this.vecAvailable = vecOk;
+    // version BEFORE this open (0 = fresh DB; SCHEMA_SQL below creates current shape)
+    let prevVersion = 0;
+    try {
+      const row = this.db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as
+        | { value: string }
+        | undefined;
+      prevVersion = row ? parseInt(row.value, 10) : 0;
+    } catch {
+      prevVersion = 0; // meta table doesn't exist yet
+    }
     this.db.exec(SCHEMA_SQL);
     for (const m of MIGRATIONS) {
       try {
@@ -129,6 +142,32 @@ export class MemoryStore {
       } catch {
         // already applied
       }
+    }
+    // v6: evidence CHECK gains TICKET_REF — needs a one-time table rebuild
+    if (prevVersion > 0 && prevVersion < 6) {
+      const tx = this.db.transaction(() => this.db.exec(EVIDENCE_REBUILD_V6));
+      tx();
+    }
+    // v8: memories/proposals CHECK gains GUARDRAIL + SKILL kinds — full table
+    // rebuild. Rowids are preserved and FTS is rebuilt; foreign keys are
+    // disabled around it (DROP TABLE memories has children), so this runs
+    // outside a transaction with manual BEGIN/COMMIT.
+    if (prevVersion > 0 && prevVersion < 8) {
+      this.db.pragma("foreign_keys = OFF");
+      this.db.exec("BEGIN");
+      try {
+        this.db.exec(MEMORIES_REBUILD_V8);
+        this.db.exec(PROPOSALS_REBUILD_V8);
+        this.db.exec("COMMIT");
+      } catch (err) {
+        this.db.exec("ROLLBACK");
+        this.db.pragma("foreign_keys = ON");
+        throw err;
+      }
+      this.db.pragma("foreign_keys = ON");
+      // dropping/recreating the tables removed their triggers and indexes —
+      // SCHEMA_SQL recreates them (all CREATE ... IF NOT EXISTS, idempotent).
+      this.db.exec(SCHEMA_SQL);
     }
     this.db
       .prepare(
@@ -198,8 +237,8 @@ export class MemoryStore {
     const insert = this.db.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO memories (id, kind, claim, confidence, status, created_by, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO memories (id, kind, claim, confidence, status, created_by, created_at, updated_at, pinned, guardrail_level)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -209,7 +248,9 @@ export class MemoryStore {
           "UNVERIFIED",
           input.createdBy ?? "human",
           now,
-          now
+          now,
+          input.pinned ? 1 : 0,
+          input.kind === "GUARDRAIL" ? input.guardrailLevel ?? "ask-first" : null
         );
 
       const scopeStmt = this.db.prepare(
@@ -339,12 +380,15 @@ export class MemoryStore {
       byKind[r.kind] = r.n;
     }
     const total = (this.db.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n;
+    const pinned = (
+      this.db.prepare("SELECT COUNT(*) AS n FROM memories WHERE pinned = 1").get() as { n: number }
+    ).n;
     const pendingProposals = (
       this.db.prepare("SELECT COUNT(*) AS n FROM proposals WHERE status = 'PENDING'").get() as {
         n: number;
       }
     ).n;
-    return { total, byStatus, byKind, dbPath: this.dbPath, pendingProposals };
+    return { total, byStatus, byKind, pinned, dbPath: this.dbPath, pendingProposals };
   }
 
   // ---------------------------------------------------------------- embeddings (semantic recall)
@@ -422,8 +466,8 @@ export class MemoryStore {
     try {
       this.db
         .prepare(
-          `INSERT INTO proposals (id, kind, claim, paths, symbols, evidence, source, source_ref, rationale, created_at, updated_at, ticket_ref)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO proposals (id, kind, claim, paths, symbols, evidence, source, source_ref, rationale, created_at, updated_at, ticket_ref, guardrail_level)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -439,7 +483,8 @@ export class MemoryStore {
           input.rationale ?? null,
           now,
           now,
-          input.ticketRef ?? null
+          input.ticketRef ?? null,
+          input.kind === "GUARDRAIL" ? input.guardrailLevel ?? "ask-first" : null
         );
     } catch (err) {
       // UNIQUE(source, source_ref, claim) — already proposed
@@ -480,6 +525,10 @@ export class MemoryStore {
       symbols: p.symbols,
       evidence: p.evidence,
       createdBy: p.source,
+      guardrailLevel: p.guardrailLevel,
+      // Knowledgebase docs are curated reference material — pin on approval so
+      // they don't decay with age (still falsifiable if evidence fails).
+      pinned: p.source.startsWith("knowledge:"),
     });
     this.db
       .prepare("UPDATE proposals SET status = 'APPROVED', memory_id = ?, updated_at = ? WHERE id = ?")
@@ -536,6 +585,7 @@ export class MemoryStore {
       memoryId: (row.memory_id as string | null) ?? null,
       updatedAt: (row.updated_at as string | null) ?? null,
       ticketRef: (row.ticket_ref as string | null) ?? undefined,
+      guardrailLevel: (row.guardrail_level as GuardrailLevel | null) ?? undefined,
     };
   }
 
@@ -555,6 +605,18 @@ export class MemoryStore {
     this.db
       .prepare("UPDATE memories SET confidence = ?, updated_at = ? WHERE id = ?")
       .run(Math.max(0, Math.min(1, confidence)), new Date().toISOString(), id);
+  }
+
+  /**
+   * Pin/unpin a memory. Pinned memories never decay with time (but evidence
+   * failure still marks them STALE — pinning removes the clock, not the test).
+   */
+  setPinned(id: string, pinned: boolean): void {
+    const res = this.db
+      .prepare("UPDATE memories SET pinned = ?, updated_at = ? WHERE id = ?")
+      .run(pinned ? 1 : 0, new Date().toISOString(), id);
+    if (res.changes === 0) throw new Error(`No memory with id ${id}`);
+    this.recordEvent("status_changed", id, { pinned });
   }
 
   touchVerified(id: string): void {
@@ -659,12 +721,13 @@ export class MemoryStore {
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO memories (id, kind, claim, confidence, status, created_by, created_at, verified_at, superseded_by, updated_at)
-           VALUES (@id, @kind, @claim, @confidence, @status, @created_by, @created_at, @verified_at, @superseded_by, @updated_at)
+          `INSERT INTO memories (id, kind, claim, confidence, status, created_by, created_at, verified_at, superseded_by, updated_at, pinned, guardrail_level)
+           VALUES (@id, @kind, @claim, @confidence, @status, @created_by, @created_at, @verified_at, @superseded_by, @updated_at, @pinned, @guardrail_level)
            ON CONFLICT(id) DO UPDATE SET
              kind=excluded.kind, claim=excluded.claim, confidence=excluded.confidence,
              status=excluded.status, verified_at=excluded.verified_at,
-             superseded_by=excluded.superseded_by, updated_at=excluded.updated_at`
+             superseded_by=excluded.superseded_by, updated_at=excluded.updated_at,
+             pinned=excluded.pinned, guardrail_level=excluded.guardrail_level`
         )
         .run({
           id: m.id,
@@ -677,6 +740,8 @@ export class MemoryStore {
           verified_at: m.verifiedAt,
           superseded_by: null, // applied without FK risk; relinked below if target exists
           updated_at: m.updatedAt ?? m.createdAt,
+          pinned: m.pinned ? 1 : 0,
+          guardrail_level: m.guardrailLevel ?? null,
         });
       if (m.supersededBy) {
         this.db
@@ -711,8 +776,8 @@ export class MemoryStore {
     try {
       this.db
         .prepare(
-          `INSERT INTO proposals (id, kind, claim, paths, symbols, evidence, source, source_ref, rationale, created_at, status, memory_id, updated_at, ticket_ref)
-           VALUES (@id, @kind, @claim, @paths, @symbols, @evidence, @source, @source_ref, @rationale, @created_at, @status, NULL, @updated_at, @ticket_ref)
+          `INSERT INTO proposals (id, kind, claim, paths, symbols, evidence, source, source_ref, rationale, created_at, status, memory_id, updated_at, ticket_ref, guardrail_level)
+           VALUES (@id, @kind, @claim, @paths, @symbols, @evidence, @source, @source_ref, @rationale, @created_at, @status, NULL, @updated_at, @ticket_ref, @guardrail_level)
            ON CONFLICT(id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at`
         )
         .run({
@@ -729,6 +794,7 @@ export class MemoryStore {
           status: p.status,
           updated_at: p.updatedAt ?? p.createdAt,
           ticket_ref: p.ticketRef ?? null,
+          guardrail_level: p.guardrailLevel ?? null,
         });
     } catch (err) {
       // (source, source_ref, claim) dedupe collision with a different id —
@@ -793,6 +859,7 @@ export class MemoryStore {
       },
       confidence: row.confidence,
       status: row.status,
+      pinned: !!row.pinned,
       createdBy: row.created_by,
       createdAt: row.created_at,
       verifiedAt: row.verified_at,
@@ -807,6 +874,7 @@ export class MemoryStore {
         result: e.result,
       })),
       links: links.map((l) => ({ fromId: l.from_id, toId: l.to_id, relation: l.relation })),
+      guardrailLevel: (row.guardrail_level as GuardrailLevel | null) ?? undefined,
     };
   }
 }

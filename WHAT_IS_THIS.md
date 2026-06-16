@@ -131,9 +131,12 @@ Three ways, use any mix:
 | `dim mine` | Harvest memory candidates from git history |
 | `dim review` | Approve/reject proposed memories |
 | `dim verify` | Re-run proofs now (`--deep` = include tests/exec) |
+| `dim pin <id>` / `dim unpin <id>` | Pin = never decays with age (evidence still applies) |
 | `dim status` / `dim log` | Health check / recent memories |
 | `dim refute <id>` | Mark a memory false (kept as negative knowledge) |
 | `dim forget <id>` | Delete a memory entirely |
+| `dim generate-context` | Auto-build `CLAUDE.md` / `.cursorrules` from verified memories *(coming soon)* |
+| `dim check` | Pre-commit: warn if staged changes contradict memories *(coming soon)* |
 | `dim ui` | **Open the visual dashboard in your browser** — every workflow has a UI here (add/search memories, approve proposals, verify, mine git history, team sync setup, API keys, memory graph), so you never *need* the CLI day-to-day |
 
 ---
@@ -143,12 +146,15 @@ Three ways, use any mix:
 | | Notes file / CLAUDE.md | Generic AI memory | **aidimag** |
 |---|---|---|---|
 | Survives across sessions | ✓ | ✓ | ✓ |
-| Works with *any* AI tool | ✗ (per-tool) | varies | ✓ (MCP standard) |
+| Works with *any* AI tool | ✗ (per-tool) | varies | ✓ (MCP + auto-generated CLAUDE.md/.cursorrules) |
 | Knows *which files* a fact applies to | ✗ | ✗ | ✓ |
 | **Detects when a fact goes stale** | ✗ | ✗ | ✓ auto, on every git pull |
 | Confidence fades without re-confirmation | ✗ | ✗ | ✓ |
 | Remembers what *didn't* work | manual | ✗ | ✓ first-class |
 | You approve what gets remembered | — | ✗ | ✓ review queue |
+| Enforces guardrails (always/never/ask-first) | ✗ | ✗ | ✓ *(coming soon)* |
+| Pre-commit contradiction check | ✗ | ✗ | ✓ *(coming soon)* |
+| Pin important memories forever | ✗ | ✗ | ✓ `dim pin` |
 
 The one-line pitch: **AI models keep getting smarter, but they still forget your
 project every session. aidimag is the memory they keep — and the only one that

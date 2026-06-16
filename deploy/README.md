@@ -1,4 +1,4 @@
-# Deploying the aidimag sync server (hosted "SaaS" v0)
+# Deploying the aiDimag sync server (hosted "SaaS" v0)
 
 This turns `dim serve` into a hosted team service in ~10 minutes. It's the
 self-hostable core of the future SaaS — OAuth/billing layer on top comes later

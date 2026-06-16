@@ -181,6 +181,10 @@ export function runEvidence(ev: Evidence, repoRoot: string, opts: RunOptions = {
       return opts.deep
         ? runExecTrace(ev, repoRoot)
         : { evidenceId: ev.id, type: ev.type, result: "SKIPPED", detail: "expensive tier — use --deep" };
+    case "TICKET_REF":
+      // annotation-only provenance (TICKETS_DESIGN open question #2: ticket
+      // lifecycle is a weaker signal than code evidence — never flips status)
+      return { evidenceId: ev.id, type: ev.type, result: "SKIPPED", detail: `ticket ${ev.payload} (provenance annotation)` };
   }
 }
 

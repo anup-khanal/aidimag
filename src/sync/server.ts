@@ -31,6 +31,7 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { timingSafeEqual, randomBytes } from "node:crypto";
+import { buildDirectProvider } from "../tickets/provider.js";
 
 export interface SyncItem {
   tbl: "memories" | "proposals";
@@ -114,7 +115,24 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_brain ON events(brain, seq);
 CREATE INDEX IF NOT EXISTS idx_events_memory ON events(brain, memory_id, type);
+-- T3 tickets: team-shared ticketing credentials — members never hold them
+CREATE TABLE IF NOT EXISTS ticket_configs (
+  brain      TEXT PRIMARY KEY,
+  provider   TEXT NOT NULL,              -- jira | github | linear | http
+  base_url   TEXT NOT NULL DEFAULT '',
+  credential TEXT,                       -- team token, server-side only
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ticket_cache (
+  brain      TEXT NOT NULL,
+  id         TEXT NOT NULL,
+  payload    TEXT NOT NULL,              -- normalized Ticket JSON ('' = miss)
+  fetched_at TEXT NOT NULL,
+  PRIMARY KEY (brain, id)
+);
 `;
+
+const TICKET_CACHE_TTL_MS = 10 * 60 * 1000;
 
 function safeEqual(a: string, b: string): boolean {
   const ba = Buffer.from(a), bb = Buffer.from(b);
@@ -458,6 +476,59 @@ export function startSyncServer(opts: {
           reports,
         }));
         return respond(200, { consensus });
+      }
+
+      // ---- T3 tickets: team-shared credentials, server-side fetch + cache ---
+      if (url.pathname === "/v1/ticket-config") {
+        if (!isAdmin) return respond(403, { error: "admin token required" });
+        if (req.method === "PUT" || req.method === "POST") {
+          const body = await readBody(req);
+          const cfg = JSON.parse(body || "{}") as { provider?: string; baseUrl?: string; credential?: string };
+          if (!cfg.provider) return respond(400, { error: "missing provider" });
+          db.prepare(
+            `INSERT INTO ticket_configs (brain, provider, base_url, credential, updated_at) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(brain) DO UPDATE SET provider=excluded.provider, base_url=excluded.base_url,
+               credential=COALESCE(excluded.credential, ticket_configs.credential), updated_at=excluded.updated_at`
+          ).run(brain, cfg.provider, cfg.baseUrl ?? "", cfg.credential ?? null, new Date().toISOString());
+          db.prepare("DELETE FROM ticket_cache WHERE brain = ?").run(brain);
+          return respond(200, { ok: true, brain, provider: cfg.provider });
+        }
+        if (req.method === "GET") {
+          const row = db
+            .prepare("SELECT provider, base_url, credential IS NOT NULL AS has_credential, updated_at FROM ticket_configs WHERE brain = ?")
+            .get(brain) as Record<string, unknown> | undefined;
+          return respond(200, { config: row ?? null });
+        }
+        if (req.method === "DELETE") {
+          const r = db.prepare("DELETE FROM ticket_configs WHERE brain = ?").run(brain);
+          db.prepare("DELETE FROM ticket_cache WHERE brain = ?").run(brain);
+          return respond(200, { removed: r.changes > 0 });
+        }
+        return respond(405, { error: "method not allowed" });
+      }
+
+      if (req.method === "GET" && url.pathname === "/v1/ticket") {
+        const ticketId = url.searchParams.get("id");
+        if (!ticketId) return respond(400, { error: "missing ?id=" });
+        const cached = db
+          .prepare("SELECT payload, fetched_at FROM ticket_cache WHERE brain = ? AND id = ?")
+          .get(brain, ticketId) as { payload: string; fetched_at: string } | undefined;
+        if (cached && Date.now() - new Date(cached.fetched_at).getTime() < TICKET_CACHE_TTL_MS) {
+          if (!cached.payload) return respond(404, { error: "ticket not found" });
+          return respond(200, JSON.parse(cached.payload));
+        }
+        const cfgRow = db
+          .prepare("SELECT provider, base_url, credential FROM ticket_configs WHERE brain = ?")
+          .get(brain) as { provider: string; base_url: string; credential: string | null } | undefined;
+        if (!cfgRow) return respond(404, { error: "no ticket provider configured for this brain (admin: dim ticket share)" });
+        const provider = buildDirectProvider(cfgRow.provider, cfgRow.base_url, cfgRow.credential);
+        if (!provider) return respond(502, { error: "ticket provider misconfigured (missing credential?)" });
+        const ticket = await provider.getTicket(ticketId);
+        db.prepare(
+          "INSERT OR REPLACE INTO ticket_cache (brain, id, payload, fetched_at) VALUES (?, ?, ?, ?)"
+        ).run(brain, ticketId, ticket ? JSON.stringify(ticket) : "", new Date().toISOString());
+        if (!ticket) return respond(404, { error: "ticket not found" });
+        return respond(200, ticket);
       }
 
       respond(404, { error: "not found" });
