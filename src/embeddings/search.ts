@@ -9,6 +9,7 @@
 import type { MemoryStore } from "../db/store.js";
 import type { MemoryEntry, MemorySearchOptions } from "../types.js";
 import { getEmbeddingProvider, type EmbeddingProvider } from "./provider.js";
+import { debugLog } from "../debug.js";
 
 const RRF_K = 60;
 const STATUS_PENALTY: Record<string, number> = { VERIFIED: 0, UNVERIFIED: 0.004, STALE: 0.012, REFUTED: 0.02 };
@@ -51,7 +52,9 @@ export async function hybridSearch(store: MemoryStore, opts: MemorySearchOptions
   try {
     const [qvec] = await provider.embed([opts.query]);
     knnIds = store.knn(qvec, Math.max(opts.limit ?? 10, 10) * 2);
-  } catch {
+  } catch (err) {
+    // embedding/KNN failure → keyword-only results, never a broken search
+    debugLog("semantic search (fell back to keyword-only)", err);
     return { results: ftsResults, semantic: false };
   }
   if (knnIds.length === 0) return { results: ftsResults, semantic: false };

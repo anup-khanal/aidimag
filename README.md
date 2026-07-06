@@ -55,7 +55,7 @@ dim status
 | `dim generate-context` | Render verified memory into static context files (`-f claude\|cursorrules\|copilot\|all`); `--auto`/`--no-auto` keeps them refreshed after verify/review/sync |
 | `dim check` | Pre-commit contradiction check: scan the staged diff against active memories + guardrails (`--block` to exit 1, `-r <ref>` to diff a ref) |
 | `dim brief` | Print a session-start briefing: in-scope memory, guardrails, stale warnings, and questions to ask before coding |
-| `dim mine` | Mine git history for memory candidates (`--full` to rescan all; `--llm` = deep mining: the LLM reads each commit's message **and diff** and synthesizes claims + suggested checks) |
+| `dim mine` | Mine git history for memory candidates (`--full` to rescan all; `--llm` = deep mining: the LLM reads each commit's message **and diff** and synthesizes claims + suggested checks; `--prs` = mine merged GitHub PRs + review comments via `gh`) |
 | `dim harvest` | Harvest durable facts YOU typed into AI chats (Claude Code transcripts, secrets redacted, local-only) into the review queue (`--all`, `--install-hook` for a SessionEnd hook) |
 | `dim review [approve\|reject] [id\|all]` | Review the proposal queue — **auto-triaged best-first** (evidence, source trust, scope; penalized for similarity to past rejections). Plain `dim review` opens a conversational walkthrough; `approve all --min-score 0.7` batch-approves above a bar |
 | `dim verify` | Re-run evidence, update statuses (`--deep` for tests/exec, `-q` for hooks, `-i <id>` to scope, `--trust` to review & approve synced-in evidence commands; exit 2 if anything went stale). Memories that flip to STALE auto-draft a **recovery proposal** so staleness never dead-ends |
@@ -290,6 +290,7 @@ Passive capture ✅ — `context_note` MCP tool (live in-chat fact capture with 
 Cold-start & capture quality ✅ — `dim bootstrap` (day-one starter brain from repo survey with suggested checks), `dim mine --llm` (diff-aware LLM commit mining), STALE → recovery proposals (staleness never dead-ends), review-queue auto-triage with correction-loop penalty (`dim review approve all --min-score`).
 Security hardening ✅ — evidence trust gate (synced-in shell commands never execute until locally approved via `dim verify --trust`), sync-server credentials hashed at rest, per-IP rate limiting on device auth, no internal error leakage; `knowledge.requireReview:false` auto-approvals no longer pin.
 Test suite ✅ — 23 unit tests across the store (lifecycle, proposals, gaps, trust gate), capture pipeline (triage, harvest, extraction, miner), and verification engine (decay math, lifecycle, trust gate, stale recovery).
+Engineering hygiene ✅ — GitHub Actions CI (build + tests on Node 18/20/22), CLI split into per-domain command modules (`src/cli/commands/`), PR miner extracted to `src/capture/pr-miner.ts`, and `AIDIMAG_DEBUG=1` surfaces every silently-swallowed best-effort error.
 
 ## Karpathy 3-Layer Integration (shipped — see [KARPATHY_LAYERS.md](./KARPATHY_LAYERS.md))
 
@@ -337,6 +338,6 @@ that flow into `CLAUDE.md` and every AI tool via `dim generate-context`.
 
 ### Other
 
-npm publish; hosted SaaS top layer (GitHub OAuth, Postgres, billing per [CLOUD_DESIGN.md](./CLOUD_DESIGN.md)); PR review-comment mining (GitHub Action / `gh` integration); Cursor/Copilot chat-history harvesting + `@dimag` VS Code chat participant; closed-ticket mining; container isolation for deep-tier evidence runners; CLI monolith split; ticket open questions (multi-pattern repos, redaction) per [TICKETS_DESIGN.md](./TICKETS_DESIGN.md); CI workflow for the test suite.
+npm publish; hosted SaaS top layer (GitHub OAuth, Postgres, billing per [CLOUD_DESIGN.md](./CLOUD_DESIGN.md)); PR-mining GitHub Action (CI-side `dim mine --prs`); Cursor/Copilot chat-history harvesting + `@dimag` VS Code chat participant; closed-ticket mining; container isolation for deep-tier evidence runners; ticket open questions (multi-pattern repos, redaction) per [TICKETS_DESIGN.md](./TICKETS_DESIGN.md).
 
 

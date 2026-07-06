@@ -13,6 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { debugLog } from "../debug.js";
 import type { MemoryStore } from "../db/store.js";
 import type { MemoryEntry, Proposal } from "../types.js";
 import type { SyncItem, EventItem } from "./server.js";
@@ -296,7 +297,8 @@ export async function maybeAutoSync(store: MemoryStore, repoRoot: string): Promi
     const r = await sync(store, repoRoot);
     store.setMeta(AUTO_SYNC_LAST_KEY, new Date().toISOString());
     return r;
-  } catch {
+  } catch (err) {
+    debugLog("auto-sync", err);
     return null; // offline / server down — local-first means we just carry on
   }
 }

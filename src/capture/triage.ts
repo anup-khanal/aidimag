@@ -56,6 +56,7 @@ const SOURCE_TRUST: Array<{ prefix: string; boost: number; label: string }> = [
   { prefix: "bootstrap", boost: 0.1, label: "repo survey" },
   { prefix: "session:", boost: 0.1, label: "agent session" },
   { prefix: "verify:stale", boost: 0.15, label: "stale-memory follow-up" },
+  { prefix: "pr-miner", boost: 0.15, label: "from PR review threads" },
   { prefix: "commit-miner", boost: 0.05, label: "mined from commits" },
 ];
 

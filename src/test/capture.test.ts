@@ -12,6 +12,7 @@ import { scoreProposal, claimSimilarity, triagePending } from "../capture/triage
 import { userMessagesFromTranscript, redactSecrets } from "../capture/harvest.js";
 import { parseClaims, dedupeClaims } from "../knowledge/extract.js";
 import { classifyCommit, scopeFromFiles } from "../capture/commit-miner.js";
+import { buildPrPrompt } from "../capture/pr-miner.js";
 import type { Proposal } from "../types.js";
 
 function fakeProposal(over: Partial<Proposal>): Proposal {
@@ -156,5 +157,28 @@ test("scopeFromFiles: filters noise, collapses to top directories", () => {
   const many = ["src/db/a.ts", "src/db/b.ts", "src/db/c.ts", "src/ui/d.ts", "docs/e.md", "src/db/f.ts", "src/ui/g.ts"];
   const scoped = scopeFromFiles(many, 2);
   assert.deepEqual(scoped, ["src/db", "src/ui"]);
+});
+
+// ---------------------------------------------------------------- PR miner
+
+test("buildPrPrompt: includes description, review comments with paths, and caps size", () => {
+  const prompt = buildPrPrompt({
+    number: 42,
+    title: "Add retry queue",
+    body: "Moves retries into src/queue so handlers stay idempotent.",
+    mergedAt: "2026-07-01T00:00:00Z",
+    mergeCommitSha: "abc123",
+    headRefName: "feature/PROJ-7-retries",
+    files: ["src/queue/index.ts"],
+    comments: [
+      { author: "alice", path: "src/queue/index.ts", body: "We never retry non-idempotent handlers — this caused the March outage." },
+      { author: "bob", path: null, body: "LGTM" },
+    ],
+  });
+  assert.match(prompt, /PR #42: Add retry queue/);
+  assert.match(prompt, /@alice on src\/queue\/index\.ts: We never retry/);
+  assert.match(prompt, /@bob: LGTM/);
+  assert.match(prompt, /feature\/PROJ-7-retries/);
+  assert.ok(prompt.length <= 12_000);
 });
 

@@ -10,6 +10,9 @@ approval. This is the human gate that lets you trust what's in the store.
   git churn) and queues an instant starter brain.
 - **Commit miner** — after each commit (or via `dim mine`), candidate memories are extracted
   from your diffs and messages (`dim mine --llm` for the diff-aware deep tier).
+- **PR review threads** — `dim mine --prs` mines merged GitHub PRs: descriptions and
+  *review comments*, where reviewers state the unwritten rules. Needs the `gh` CLI and an
+  LLM provider; proposals are anchored to the merge commit.
 - **Agent session-end** — an agent calls `memory_propose` with durable learnings.
 - **In-chat context notes** — when you state a durable fact in an AI chat ("we use X because
   Y", "never touch Z"), the agent captures it live with the `context_note` MCP tool — your

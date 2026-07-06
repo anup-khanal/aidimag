@@ -11,6 +11,7 @@
 
 import { execFileSync } from "node:child_process";
 import { extractTicketId, readTicketsConfig, DEFAULT_TICKET_PATTERN } from "../tickets/provider.js";
+import { debugLog } from "../debug.js";
 import type { MemoryKind, Proposal, ProposalInput } from "../types.js";
 import type { MemoryStore } from "../db/store.js";
 
@@ -305,7 +306,8 @@ export async function mineCommitsLlm(
     let claims;
     try {
       claims = parseClaims(await provider.generate(COMMIT_EXTRACT_INSTRUCTIONS, user));
-    } catch {
+    } catch (err) {
+      debugLog(`llm mining commit ${c.sha.slice(0, 8)} (skipped)`, err);
       continue; // provider hiccup on one commit shouldn't kill the run
     }
     const ticketRef = extractTicketId(`${c.subject}\n${c.body}`, ticketPattern) ?? undefined;

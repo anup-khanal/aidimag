@@ -22,6 +22,7 @@ import path from "node:path";
 import type { MemoryStore } from "../db/store.js";
 import { getTextProvider } from "../knowledge/llm.js";
 import { parseClaims, type ExtractedClaim } from "../knowledge/extract.js";
+import { debugLog } from "../debug.js";
 
 const CURSOR_META_KEY = "harvest_claude_last_mtime";
 /** Ignore short/noisy user turns ("yes", "continue", slash commands…). */
@@ -156,7 +157,8 @@ export async function harvestClaudeSessions(
     let messages: string[];
     try {
       messages = userMessagesFromTranscript(readFileSync(s.abs, "utf8"));
-    } catch {
+    } catch (err) {
+      debugLog(`harvest transcript ${s.file} (skipped)`, err);
       continue; // unreadable/partial file — retry next run (cursor still advances past it)
     }
     if (!messages.length) continue;
@@ -170,7 +172,8 @@ export async function harvestClaudeSessions(
         `Developer messages from one coding session on this project:\n\n----- BEGIN MESSAGES -----\n${corpus}\n----- END MESSAGES -----`
       );
       claims = parseClaims(raw);
-    } catch {
+    } catch (err) {
+      debugLog(`harvest llm extraction ${s.file} (skipped)`, err);
       continue; // provider hiccup — this session retries on the next --all run
     }
 

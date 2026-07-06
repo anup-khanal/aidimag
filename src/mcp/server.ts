@@ -25,6 +25,7 @@ import { hybridSearch, indexMemory } from "../embeddings/search.js";
 import { resolveKnowledgeConfig } from "../config.js";
 import { classifyInbox, finalizeDoc } from "../knowledge/ingest.js";
 import { KNOWLEDGE_EXTRACT_INSTRUCTIONS, buildExtractionUser, parseClaims } from "../knowledge/extract.js";
+import { debugLog } from "../debug.js";
 import type { GuardrailLevel, MemoryEntry } from "../types.js";
 
 const PKG_VERSION: string = JSON.parse(
@@ -108,8 +109,9 @@ async function main() {
       });
       try {
         store.logSearch(args.query, args.paths ?? [], results.length, "mcp");
-      } catch {
-        /* logging is best-effort; never break search */
+      } catch (err) {
+        // gap logging is best-effort; never break search
+        debugLog("mcp search-gap logging", err);
       }
       let text = renderList(results);
       if (results.length === 0) {

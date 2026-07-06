@@ -194,14 +194,16 @@ Mine git history for memory candidates (queued as proposals, never auto-saved).
 
 | Option | Meaning |
 |---|---|
-| `--full` | Rescan the entire history instead of just new commits |
+| `--full` | Rescan the entire history instead of just new commits (with `--prs`: rescan all merged PRs) |
 | `--llm` | **Deep mining**: the LLM reads each commit's message *and diff* and synthesizes falsifiable claims + suggested checks (needs Ollama/`OPENAI_API_KEY`; slower, much higher quality than the keyword heuristics) |
+| `--prs` | **PR mining**: mine merged GitHub PRs — descriptions and *review comments*, where reviewers state the unwritten rules ("we never…", "this caused the outage…"). Needs the [`gh` CLI](https://cli.github.com) (authenticated) and an LLM provider. Proposals carry the merge commit as evidence (source `pr-miner`) |
 | `--quiet` | Minimal output (used by the post-commit hook) |
 
 ```sh
 dim mine
 dim mine --full
 dim mine --llm --full   # highest-quality pass over the whole history
+dim mine --prs          # newly merged PRs + review threads since the last run
 ```
 
 ### `dim harvest`
@@ -430,9 +432,11 @@ dim mcp
 |---|---|
 | `AIDIMAG_REPO` | Repo root the MCP server / CLI should use |
 | `AIDIMAG_EMBEDDINGS` | `auto` (default) / `openai` / `ollama` / `off` |
-| `OPENAI_API_KEY` | Enables OpenAI embeddings |
+| `AIDIMAG_LLM` | Text-LLM provider for mining/harvest/bootstrap/knowledge: `auto` (default) / `openai` / `ollama` / `off` |
+| `OPENAI_API_KEY` | Enables OpenAI embeddings + text extraction |
 | `AIDIMAG_OPENAI_MODEL`, `AIDIMAG_OLLAMA_MODEL`, `AIDIMAG_OLLAMA_URL` | Customize embedding providers |
 | `AIDIMAG_AUTO_SYNC` | Set to `off` to disable debounced auto-sync after writes |
 | `AIDIMAG_API_KEY` | Auth token for sync (alternative to the credentials file) |
 | `AIDIMAG_SYNC_TOKEN`, `AIDIMAG_ADMIN_TOKEN` | Server/admin tokens for `dim serve` / `dim keys` |
+| `AIDIMAG_DEBUG` | Set to `1` to print errors from best-effort paths (auto-sync, embeddings, LLM mining skips, gap logging) that are normally silent |
 

@@ -8,6 +8,19 @@ This page gets aiDimag running in your repository.
 - A **git repository** — aiDimag stores memory per repo and installs git hooks.
 - *(Optional)* An embedding provider for semantic search: an `OPENAI_API_KEY`, or a local
   [Ollama](https://ollama.com) install. Everything works without one (keyword search only).
+- *(Optional)* A text-LLM provider (same options: OpenAI key or local Ollama) unlocks the
+  smartest capture features: `dim bootstrap`, `dim mine --llm`, and session harvesting.
+
+## The whole setup at a glance
+
+```sh
+dim init                # 1. create the memory store + git hooks
+dim bootstrap           # 2. (optional) seed memory from your codebase
+dim generate-context    # 3. feed your AI tools (or wire up MCP)
+dim status              # 4. confirm it's alive
+```
+
+Each step is explained below.
 
 ## Install
 
@@ -68,6 +81,24 @@ Add the MCP server to your agent config, e.g. for Claude Code (.mcp.json):
 }
 ```
 
+## Seed your memory (optional but recommended)
+
+A brand-new brain is empty. If you have an LLM provider available (Ollama running, or
+`OPENAI_API_KEY` set), let aiDimag read your repo once and propose starter memories —
+architecture, conventions, invariants — from your README, configs, and directory layout:
+
+```sh
+dim bootstrap
+```
+
+Nothing is saved automatically: everything lands in the **review queue**, and you approve
+or drop each proposal with `dim review`. You can also mine your git history:
+
+```sh
+dim mine --full        # keyword heuristics, fast, no LLM needed
+dim mine --llm --full  # LLM reads commits + diffs — slower, much higher quality
+```
+
 ## Connect your AI agent (optional but recommended)
 
 If you use an MCP-capable agent, wire up the server so it can read and write memory live.
@@ -106,4 +137,16 @@ dim recall db access
 
 If `dim status` shows your memory, you're set. Continue to the
 **[5-minute quick start](/quickstart)**.
+
+## If something misbehaves
+
+aiDimag keeps best-effort features (auto-sync, embeddings, LLM mining) silent when they
+fail, so they never interrupt your work. To see what's actually happening, run any
+command with debug output:
+
+```sh
+AIDIMAG_DEBUG=1 dim <command>
+```
+
+More fixes in the **[FAQ & troubleshooting](/faq)**.
 

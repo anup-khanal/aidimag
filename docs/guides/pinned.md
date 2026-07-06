@@ -44,9 +44,9 @@ You can also pin/unpin from the [VSCode and IntelliJ](/ide-extensions) extension
 - They're shown with a 📌 in the CLI, dashboard, and IDE panels.
 - `dim status` reports how many memories are pinned.
 
-## The knowledgebase connection (planned)
+## The knowledgebase connection
 
-The upcoming [knowledgebase ingestion](/guides/knowledgebase) feature turns approved
+[Knowledgebase ingestion](/guides/knowledgebase) turns approved
 summaries of your project docs into **pinned** memories — because reference material
 (design docs, ADRs, style guides) is exactly the "stays with the project forever" case
 pinning was built for.

@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import path from "node:path";
 import { SCHEMA_SQL, SCHEMA_VERSION, MIGRATIONS, EVIDENCE_REBUILD_V6, MEMORIES_REBUILD_V8, PROPOSALS_REBUILD_V8 } from "./schema.js";
+import { debugLog } from "../debug.js";
 import type {
   Evidence,
   GuardrailLevel,
@@ -121,8 +122,9 @@ export class MemoryStore {
     try {
       sqliteVec.load(this.db);
       vecOk = true;
-    } catch {
+    } catch (err) {
       // vector search unavailable on this platform — FTS-only mode
+      debugLog("sqlite-vec load (semantic search disabled)", err);
     }
     this.vecAvailable = vecOk;
     // version BEFORE this open (0 = fresh DB; SCHEMA_SQL below creates current shape)
@@ -139,8 +141,9 @@ export class MemoryStore {
     for (const m of MIGRATIONS) {
       try {
         this.db.exec(m);
-      } catch {
-        // already applied
+      } catch (err) {
+        // usually "duplicate column" = already applied; AIDIMAG_DEBUG=1 shows which
+        debugLog("schema migration (likely already applied)", err);
       }
     }
     // v6: evidence CHECK gains TICKET_REF — needs a one-time table rebuild

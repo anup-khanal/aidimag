@@ -3,6 +3,11 @@
 A hands-on tour from zero to a verified, self-correcting memory. Run these in any git repo
 after `dim init`.
 
+::: tip Don't want to start from an empty brain?
+Run `dim bootstrap` first — it reads your repo (README, configs, layout) and proposes
+starter memories for you to approve. See [Install & setup](/getting-started#seed-your-memory-optional-but-recommended).
+:::
+
 ## 1. Remember your first fact
 
 Write it as a **checkable statement**, not a vague note:
@@ -76,7 +81,9 @@ guardrails listed first.
 Let aiDimag mine your git log for memory candidates:
 
 ```sh
-dim mine
+dim mine               # fast keyword heuristics
+dim mine --llm --full  # LLM reads commits + diffs (needs Ollama or OPENAI_API_KEY)
+dim mine --prs         # mine merged GitHub PRs + review comments (needs gh CLI)
 ```
 
 Candidates don't become memory automatically — they queue for review:
@@ -98,6 +105,8 @@ review queue (approved claims become *pinned*). See [Knowledgebase](/guides/know
 ```sh
 dim status         # counts by status and kind
 dim log            # recent memories
+dim brief          # session briefing: guardrails, warnings, what to trust
+dim gaps           # questions memory couldn't answer (what to document next)
 dim ui             # open the web dashboard in your browser
 ```
 
