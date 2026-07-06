@@ -3,6 +3,8 @@
 By default aiDimag is single-player: memory lives in a local SQLite file. To share a **team
 brain** for a repo, run a small sync server — no SaaS required.
 
+![Team sync architecture: each developer keeps a full local replica; dim serve is a dumb ordered log; synced-in evidence is gated behind dim verify --trust](/diagram-team-sync.svg){.dim-diagram}
+
 ## The model
 
 - **Local-first.** Everyone still reads/writes their own local replica; nothing blocks on the

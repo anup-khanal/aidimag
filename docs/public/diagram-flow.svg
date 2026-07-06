@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="300" viewBox="0 0 880 300" fill="none" font-family="Inter, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <linearGradient id="flowGrad" x1="0" y1="0" x2="880" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <marker id="flowArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="880" height="300" rx="16" fill="#0f172a"/>
+
+  <text x="440" y="34" text-anchor="middle" fill="#e2e8f0" font-size="16" font-weight="800">How knowledge flows through aiDimag</text>
+
+  <!-- 1. Capture -->
+  <g>
+    <rect x="30" y="70" width="180" height="130" rx="14" fill="#172554" stroke="#2563eb" stroke-width="2"/>
+    <text x="120" y="97" text-anchor="middle" fill="#bfdbfe" font-size="14" font-weight="800">1 · Capture</text>
+    <text x="120" y="122" text-anchor="middle" fill="#93c5fd" font-size="12">dim remember</text>
+    <text x="120" y="141" text-anchor="middle" fill="#93c5fd" font-size="12">commit &amp; PR mining</text>
+    <text x="120" y="160" text-anchor="middle" fill="#93c5fd" font-size="12">session extraction</text>
+    <text x="120" y="179" text-anchor="middle" fill="#93c5fd" font-size="12">knowledge/ inbox</text>
+  </g>
+
+  <!-- 2. Review -->
+  <g>
+    <rect x="252" y="70" width="160" height="130" rx="14" fill="#3b1d0e" stroke="#f59e0b" stroke-width="2"/>
+    <text x="332" y="97" text-anchor="middle" fill="#fde68a" font-size="14" font-weight="800">2 · Review</text>
+    <text x="332" y="126" text-anchor="middle" fill="#fbbf24" font-size="12">dim review</text>
+    <text x="332" y="145" text-anchor="middle" fill="#fbbf24" font-size="12">you approve, edit,</text>
+    <text x="332" y="164" text-anchor="middle" fill="#fbbf24" font-size="12">or reject proposals</text>
+  </g>
+
+  <!-- 3. Store -->
+  <g>
+    <rect x="454" y="70" width="160" height="130" rx="14" fill="#111827" stroke="#0ea5e9" stroke-width="2"/>
+    <text x="534" y="97" text-anchor="middle" fill="#bae6fd" font-size="14" font-weight="800">3 · Store</text>
+    <text x="534" y="126" text-anchor="middle" fill="#7dd3fc" font-size="12">.aidimag/memory.db</text>
+    <text x="534" y="145" text-anchor="middle" fill="#7dd3fc" font-size="12">claims + evidence</text>
+    <text x="534" y="164" text-anchor="middle" fill="#7dd3fc" font-size="12">local SQLite, no SaaS</text>
+  </g>
+
+  <!-- 4. Deliver -->
+  <g>
+    <rect x="656" y="70" width="194" height="130" rx="14" fill="#082f49" stroke="#06b6d4" stroke-width="2"/>
+    <text x="753" y="97" text-anchor="middle" fill="#a5f3fc" font-size="14" font-weight="800">4 · Deliver</text>
+    <text x="753" y="126" text-anchor="middle" fill="#67e8f9" font-size="12">MCP tools (live)</text>
+    <text x="753" y="145" text-anchor="middle" fill="#67e8f9" font-size="12">CLAUDE.md · .cursorrules</text>
+    <text x="753" y="164" text-anchor="middle" fill="#67e8f9" font-size="12">session briefings</text>
+  </g>
+
+  <!-- arrows between steps -->
+  <path d="M212 135h34" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#flowArrow)"/>
+  <path d="M414 135h34" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#flowArrow)"/>
+  <path d="M616 135h34" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#flowArrow)"/>
+
+  <!-- verify loop under store -->
+  <g>
+    <rect x="392" y="228" width="284" height="46" rx="12" fill="#052e2b" stroke="#10b981" stroke-width="2"/>
+    <text x="534" y="248" text-anchor="middle" fill="#a7f3d0" font-size="13" font-weight="800">dim verify — runs on git hooks</text>
+    <text x="534" y="265" text-anchor="middle" fill="#34d399" font-size="11">re-runs evidence · marks stale · updates confidence</text>
+  </g>
+  <path d="M488 228c-30-20-30-28 10-28" stroke="#10b981" stroke-width="2" fill="none" marker-end="url(#flowArrow)"/>
+  <path d="M580 200c40 0 40 8 10 28" stroke="#10b981" stroke-width="2" fill="none"/>
+</svg>
+

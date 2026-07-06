@@ -34,6 +34,8 @@ Kinds are just categories that help organize and surface the right knowledge:
 
 Every memory is always in exactly one of four states:
 
+![The life of a memory: proposal → memory → verified or stale, with pin and forget exits](/diagram-lifecycle.svg){.dim-diagram}
+
 | Status | Meaning |
 |---|---|
 | **Unverified** | Stored, but its evidence hasn't confirmed it (or it has none yet). |

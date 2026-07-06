@@ -15,9 +15,26 @@ export default defineConfig({
   cleanUrls: true,
   ignoreDeadLinks: true,
 
-  head: [["meta", { name: "theme-color", content: "#3b82f6" }]],
+  head: [
+    ["link", { rel: "icon", type: "image/svg+xml", href: "/aidimag/favicon.svg" }],
+    ["meta", { name: "theme-color", content: "#2563eb" }],
+    ["meta", { property: "og:type", content: "website" }],
+    ["meta", { property: "og:title", content: "AI Dimag — verified memory for AI coding agents" }],
+    [
+      "meta",
+      {
+        property: "og:description",
+        content:
+          "Your codebase remembers its decisions, conventions, gotchas, and rules — and proves they're still true.",
+      },
+    ],
+    ["meta", { property: "og:image", content: "/aidimag/logo.svg" }],
+    ["meta", { name: "twitter:card", content: "summary" }],
+  ],
 
   themeConfig: {
+    logo: { src: "/logo.svg", alt: "aiDimag logo" },
+
     nav: [
       { text: "Home", link: "/" },
       { text: "Introduction", link: "/introduction" },

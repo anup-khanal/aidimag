@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="320" viewBox="0 0 880 320" fill="none" font-family="Inter, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="tsArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#06b6d4"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="880" height="320" rx="16" fill="#0f172a"/>
+  <text x="440" y="36" text-anchor="middle" fill="#e2e8f0" font-size="16" font-weight="800">Team sync — a shared brain, local-first</text>
+
+  <!-- dev A -->
+  <g>
+    <rect x="40" y="70" width="200" height="110" rx="14" fill="#172554" stroke="#2563eb" stroke-width="2"/>
+    <text x="140" y="98" text-anchor="middle" fill="#bfdbfe" font-size="13" font-weight="800">Alice's laptop</text>
+    <rect x="62" y="112" width="156" height="48" rx="10" fill="#111827" stroke="#0ea5e9" stroke-width="1.5"/>
+    <text x="140" y="132" text-anchor="middle" fill="#7dd3fc" font-size="11">.aidimag/memory.db</text>
+    <text x="140" y="149" text-anchor="middle" fill="#0ea5e9" font-size="10">full local replica</text>
+  </g>
+
+  <!-- dev B -->
+  <g>
+    <rect x="40" y="196" width="200" height="110" rx="14" fill="#172554" stroke="#2563eb" stroke-width="2"/>
+    <text x="140" y="224" text-anchor="middle" fill="#bfdbfe" font-size="13" font-weight="800">Bob's laptop</text>
+    <rect x="62" y="238" width="156" height="48" rx="10" fill="#111827" stroke="#0ea5e9" stroke-width="1.5"/>
+    <text x="140" y="258" text-anchor="middle" fill="#7dd3fc" font-size="11">.aidimag/memory.db</text>
+    <text x="140" y="275" text-anchor="middle" fill="#0ea5e9" font-size="10">full local replica</text>
+  </g>
+
+  <!-- server -->
+  <g>
+    <rect x="370" y="118" width="220" height="140" rx="14" fill="#082f49" stroke="#06b6d4" stroke-width="2"/>
+    <text x="480" y="146" text-anchor="middle" fill="#a5f3fc" font-size="13" font-weight="800">dim serve (self-hosted)</text>
+    <text x="480" y="170" text-anchor="middle" fill="#67e8f9" font-size="11">dumb ordered log</text>
+    <text x="480" y="189" text-anchor="middle" fill="#67e8f9" font-size="11">hashed credentials</text>
+    <text x="480" y="208" text-anchor="middle" fill="#67e8f9" font-size="11">rate-limited device login</text>
+    <text x="480" y="227" text-anchor="middle" fill="#67e8f9" font-size="11">verification consensus</text>
+    <text x="480" y="246" text-anchor="middle" fill="#0891b2" font-size="10">laptop · VPS · Fly.io — no SaaS</text>
+  </g>
+
+  <!-- trust gate -->
+  <g>
+    <rect x="656" y="118" width="196" height="140" rx="14" fill="#052e2b" stroke="#10b981" stroke-width="2"/>
+    <text x="754" y="146" text-anchor="middle" fill="#a7f3d0" font-size="13" font-weight="800">Evidence trust gate</text>
+    <text x="754" y="172" text-anchor="middle" fill="#34d399" font-size="11">synced-in commands are</text>
+    <text x="754" y="190" text-anchor="middle" fill="#34d399" font-size="11">never executed until you</text>
+    <text x="754" y="208" text-anchor="middle" fill="#34d399" font-size="11">approve them once with</text>
+    <text x="754" y="230" text-anchor="middle" fill="#a7f3d0" font-size="12" font-weight="700">dim verify --trust</text>
+  </g>
+
+  <!-- sync arrows -->
+  <path d="M240 125c50 0 80 20 128 45" stroke="#06b6d4" stroke-width="2.5" fill="none" marker-end="url(#tsArrow)"/>
+  <path d="M354 195c-44 24-72 40-114 48" stroke="#06b6d4" stroke-width="2.5" fill="none" marker-end="url(#tsArrow)"/>
+  <text x="300" y="130" text-anchor="middle" fill="#22d3ee" font-size="11" font-weight="700">dim sync</text>
+  <text x="300" y="250" text-anchor="middle" fill="#22d3ee" font-size="11" font-weight="700">dim sync</text>
+
+  <path d="M590 188h56" stroke="#10b981" stroke-width="2.5" marker-end="url(#tsArrow)"/>
+
+  <!-- footer note -->
+  <text x="440" y="300" text-anchor="middle" fill="#64748b" font-size="11">Last-writer-wins with tombstones · all merging, verification &amp; ranking happen on the client</text>
+</svg>
+

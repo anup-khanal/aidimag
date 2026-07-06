@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/public/logo.svg" alt="aiDimag logo" width="96" height="96" />
+</p>
+
 # aiDimag
 
 > Persistent, verified memory for AI coding agents. CLI: **`dim`** (*dimag* = brain).

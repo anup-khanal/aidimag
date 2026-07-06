@@ -3,6 +3,8 @@
 A plain-English tour of what happens under the hood. You don't need this to use aiDimag,
 but it helps to know where things live and why.
 
+![How knowledge flows through aiDimag: capture, review, store, deliver — with verification looping over the store](/diagram-flow.svg){.dim-diagram}
+
 ## The store: one SQLite file per repo
 
 All memory lives in `.aidimag/memory.db`, a local [SQLite](https://sqlite.org) database
@@ -35,6 +37,8 @@ Proposals wait in a queue until you run `dim review`.
 
 This is the heart of aidimag. Memories are claims with evidence, and `dim verify` re-runs
 that evidence against the current code:
+
+![The life of a memory: proposal → memory → verified or stale, with pin and forget exits](/diagram-lifecycle.svg){.dim-diagram}
 
 - All checks pass → the memory becomes (or stays) **verified**, confidence ticks up.
 - Any check fails → the memory goes **stale**, confidence is floored.
