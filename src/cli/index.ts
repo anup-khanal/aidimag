@@ -193,6 +193,7 @@ program
         console.log(`\nUpdated ${rootIgnore} (ignored memory.db + ${folder}/ drops)`);
       }
     }
+    console.log(`\nNext: \`dim bootstrap\` gives this repo an instant starter brain (surveys docs/structure/history, queues reviewable memories).`);
   });
 
 program
@@ -258,6 +259,13 @@ program
       limit: parseInt(opts.limit, 10),
       includeRefuted: Boolean(opts.all),
     });
+    if (query.length) {
+      try {
+        store.logSearch(query.join(" "), opts.path ?? [], results.length, "cli");
+      } catch {
+        /* best-effort */
+      }
+    }
     if (results.length === 0) console.log("No matching memories.");
     for (const m of results) printMemory(m, true);
     if (query.length && !semantic) {
@@ -357,7 +365,10 @@ function printProposal(p: Proposal): void {
  * keep / reword / drop / skip. The human gate, made friendly.
  */
 async function interactiveReview(store: MemoryStore): Promise<{ kept: number; rejected: number }> {
-  const pending = store.listProposals("PENDING", 1000);
+  const { triagePending } = await import("../capture/triage.js");
+  const triaged = triagePending(store, 1000);
+  const pending = triaged.map((t) => t.proposal);
+  const scoreOf = new Map(triaged.map((t) => [t.proposal.id, t] as const));
   if (pending.length === 0) {
     console.log("✨ Nothing waiting on you — the review queue is empty.");
     return { kept: 0, rejected: 0 };
@@ -371,12 +382,14 @@ async function interactiveReview(store: MemoryStore): Promise<{ kept: number; re
   const { ticketProviderFor } = await import("../tickets/provider.js");
   const provider = reviewRoot ? ticketProviderFor(reviewRoot) : null;
   const plural = pending.length === 1 ? "proposal is" : "proposals are";
-  console.log(`🧠 ${pending.length} memory ${plural} waiting for your review.\n`);
+  console.log(`🧠 ${pending.length} memory ${plural} waiting for your review (best first).\n`);
   try {
     for (let i = 0; i < pending.length; i++) {
       const p = pending[i];
       const src = p.source === "commit-miner" ? `mined from commit ${p.sourceRef?.slice(0, 8) ?? "?"}` : `proposed by ${p.source}`;
-      console.log(`── ${i + 1} of ${pending.length} ── ${p.kind} · ${src}`);
+      const tri = scoreOf.get(p.id);
+      console.log(`── ${i + 1} of ${pending.length} ── ${p.kind} · ${src}${tri ? ` · score ${tri.score.toFixed(2)}` : ""}`);
+      if (tri?.reasons.length) console.log(`   (${tri.reasons.join(", ")})`);
       console.log(`\n   “${p.claim}”\n`);
       if (p.paths.length || p.symbols.length) console.log(`   applies to: ${[...p.paths, ...p.symbols].join(", ")}`);
       if (p.evidence.length)
@@ -442,15 +455,31 @@ program
   .description("Mine git history for memory candidates (queued for review, never auto-saved)")
   .option("-n, --max <n>", "Max commits to scan", "500")
   .option("--full", "Rescan from the beginning of history (ignore cursor)")
+  .option("--llm", "Deep mining: LLM reads each commit's message AND diff, synthesizes claims + suggested checks (needs Ollama/OPENAI_API_KEY; slower, much higher quality)")
   .option("-q, --quiet", "Only speak up when candidates are found (for the post-commit hook)")
-  .action((opts) => {
+  .action(async (opts) => {
     const root = findRepoRoot() ?? fail("not inside a git repo");
     if (!existsSync(path.join(root, ".git"))) fail("commit mining requires a git repo");
     const store = MemoryStore.open(root, { create: true });
-    const res = mineCommits(store, root, {
-      maxCommits: parseInt(opts.max, 10),
-      full: Boolean(opts.full),
-    });
+    let res;
+    let llmProvider: string | null = null;
+    if (opts.llm) {
+      const { mineCommitsLlm } = await import("../capture/commit-miner.js");
+      const r = await mineCommitsLlm(store, root, {
+        maxCommits: parseInt(opts.max, 10),
+        full: Boolean(opts.full),
+      });
+      res = r;
+      llmProvider = r.provider;
+      if (!llmProvider && !opts.quiet) {
+        console.log("(no LLM provider available — fell back to keyword mining; run Ollama or set OPENAI_API_KEY)");
+      }
+    } else {
+      res = mineCommits(store, root, {
+        maxCommits: parseInt(opts.max, 10),
+        full: Boolean(opts.full),
+      });
+    }
     if (opts.quiet) {
       // post-commit hook mode: a single gentle nudge, nothing else
       if (res.proposed.length > 0) {
@@ -464,7 +493,7 @@ program
       return;
     }
     console.log(
-      `Scanned ${res.scanned} commit(s): ${res.proposed.length} proposal(s) queued` +
+      `Scanned ${res.scanned} commit(s)${llmProvider ? ` with ${llmProvider}` : ""}: ${res.proposed.length} proposal(s) queued` +
         (res.skippedDuplicates ? `, ${res.skippedDuplicates} duplicate(s) skipped` : "") +
         (res.lastSha ? ` (cursor @ ${res.lastSha.slice(0, 8)})` : "")
     );
@@ -474,11 +503,94 @@ program
   });
 
 program
+  .command("bootstrap")
+  .description("Give a fresh repo an instant brain: survey README/docs/manifests/structure/churn and LLM-extract an initial memory set (queued for review)")
+  .option("--force", "Re-run even if this repo was already bootstrapped")
+  .action(async (opts) => {
+    const root = findRepoRoot() ?? fail("not inside a git repo");
+    const store = MemoryStore.open(root, { create: true });
+    const { bootstrapRepo } = await import("../capture/bootstrap.js");
+    console.log("Surveying the repo (docs, manifests, structure, churn)…");
+    const res = await bootstrapRepo(store, root, { force: Boolean(opts.force) });
+    if (res.alreadyBootstrapped) {
+      console.log("Already bootstrapped — use --force to re-run (dedupe absorbs repeats).");
+    } else if (!res.provider) {
+      fail("no LLM provider available — run Ollama locally or set OPENAI_API_KEY (see AIDIMAG_LLM)");
+    } else {
+      console.log(
+        `Surveyed ${res.surveyedFiles.length} file(s) with ${res.provider}: ` +
+          `${res.proposed} proposal(s) queued${res.duplicates ? `, ${res.duplicates} duplicate(s) skipped` : ""}.`
+      );
+      if (res.proposed) {
+        console.log(`\nYour repo's starter brain is ready for review: \`dim review\``);
+        console.log(`(then \`dim verify\` to put the suggested checks to the test)`);
+      } else {
+        console.log("No durable claims extracted — the survey found little written-down knowledge. Feed docs into knowledge/ or use `dim mine --llm`.");
+      }
+    }
+    store.close();
+  });
+
+program
+  .command("harvest")
+  .description("Harvest durable facts YOU typed into AI chats (Claude Code transcripts) into the review queue — local-only, secrets redacted")
+  .option("--all", "Rescan every session (ignore cursor; dedupe absorbs repeats)")
+  .option("--install-hook", "Wire `dim harvest -q` into this repo's Claude Code SessionEnd hook (.claude/settings.json)")
+  .option("-q, --quiet", "Only speak up when proposals are queued (for the SessionEnd hook)")
+  .action(async (opts) => {
+    const root = findRepoRoot() ?? fail("not inside a git repo");
+    const { harvestClaudeSessions, installClaudeSessionEndHook, claudeProjectDir } = await import(
+      "../capture/harvest.js"
+    );
+    if (opts.installHook) {
+      const { installed, settingsPath } = installClaudeSessionEndHook(root);
+      console.log(
+        installed
+          ? `✓ SessionEnd hook installed in ${settingsPath} — every Claude Code session is now harvested on close.`
+          : `Hook already present in ${settingsPath} — nothing to do.`
+      );
+      return;
+    }
+    const store = MemoryStore.open(root, { create: true });
+    const res = await harvestClaudeSessions(store, root, { all: Boolean(opts.all) });
+    if (opts.quiet) {
+      if (res.proposed > 0) {
+        console.log(
+          `🧠 aidimag: harvested ${res.proposed} memory candidate(s) from your AI chat — review with \`dim review\`.`
+        );
+      }
+      store.close();
+      return;
+    }
+    if (!res.transcriptDir) {
+      console.log(`No Claude Code transcripts found for this repo (${claudeProjectDir(root) ?? "~/.claude/projects/<repo-slug>"} missing).`);
+      console.log("Transcripts appear after your first Claude Code session here. Cursor/Copilot chat harvesting: planned.");
+    } else if (!res.provider) {
+      fail("no LLM provider available — run Ollama locally or set OPENAI_API_KEY (see AIDIMAG_LLM)");
+    } else if (res.sessionsScanned === 0) {
+      console.log("No new sessions since the last harvest. Use --all to rescan everything.");
+    } else {
+      console.log(
+        `Scanned ${res.sessionsScanned} session(s), ${res.messagesConsidered} user message(s) via ${res.provider}: ` +
+          `${res.proposed} proposal(s) queued` +
+          (res.duplicates ? `, ${res.duplicates} duplicate(s) skipped` : "") +
+          "."
+      );
+      if (res.proposed) console.log(`Review with \`dim review\`.`);
+    }
+    if (!opts.installHook && res.transcriptDir) {
+      console.log(`(tip: \`dim harvest --install-hook\` runs this automatically when each Claude Code session ends)`);
+    }
+    store.close();
+  });
+
+program
   .command("review")
   .description("Review pending memory proposals — interactive walkthrough by default (list | approve | reject for scripting)")
   .argument("[action]", "interactive (default in a terminal) | list | approve | reject")
   .argument("[id]", "Proposal id (8-char prefix ok); 'all' with approve/reject applies to every pending proposal")
   .option("-n, --limit <n>", "Max proposals to list", "50")
+  .option("--min-score <s>", "With 'approve all': only approve proposals triaged at or above this score (0–1)")
   .action(async (action: string | undefined, id: string | undefined, opts) => {
     const store = MemoryStore.open();
     const effective = action ?? (process.stdin.isTTY && process.stdout.isTTY ? "interactive" : "list");
@@ -489,18 +601,34 @@ program
         break;
       }
       case "list": {
-        const pending = store.listProposals("PENDING", parseInt(opts.limit, 10));
-        if (pending.length === 0) console.log("No pending proposals.");
-        for (const p of pending) printProposal(p);
-        if (pending.length) {
+        const { triagePending } = await import("../capture/triage.js");
+        const triaged = triagePending(store, parseInt(opts.limit, 10));
+        if (triaged.length === 0) console.log("No pending proposals.");
+        for (const t of triaged) {
+          console.log(`  score ${t.score.toFixed(2)}${t.reasons.length ? ` (${t.reasons.join(", ")})` : ""}`);
+          printProposal(t.proposal);
+        }
+        if (triaged.length) {
           console.log(`\nApprove: dim review approve <id> | Reject: dim review reject <id> | Walkthrough: dim review`);
+          console.log(`Batch: dim review approve all --min-score 0.7`);
         }
         break;
       }
       case "approve": {
-        if (!id) fail("usage: dim review approve <id|all>");
-        const targets =
-          id === "all" ? store.listProposals("PENDING", 1000).map((p) => p.id) : [id];
+        if (!id) fail("usage: dim review approve <id|all> [--min-score <s>]");
+        let targets: string[];
+        if (id === "all") {
+          const { triagePending } = await import("../capture/triage.js");
+          const minScore = opts.minScore !== undefined ? parseFloat(opts.minScore) : null;
+          const triaged = triagePending(store, 1000);
+          const chosen = minScore === null ? triaged : triaged.filter((t) => t.score >= minScore);
+          targets = chosen.map((t) => t.proposal.id);
+          if (minScore !== null) {
+            console.log(`${chosen.length} of ${triaged.length} pending proposal(s) scored ≥ ${minScore}.`);
+          }
+        } else {
+          targets = [id];
+        }
         for (const t of targets) {
           const entry = store.approveProposal(t);
           console.log(`✓ approved → memory ${entry.id.slice(0, 8)}: ${entry.claim}`);
@@ -530,10 +658,31 @@ program
   .description("Re-run evidence and update memory statuses (cheap tier; --deep adds tests/exec)")
   .option("-i, --id <ids...>", "Only verify specific memory ids (prefix ok)")
   .option("-d, --deep", "Also run expensive evidence (TEST_RESULT, EXEC_TRACE)")
+  .option("--trust", "Review evidence commands that arrived via team sync and approve them to run on this machine")
   .option("-q, --quiet", "Only print status changes (for git hooks)")
   .action(async (opts) => {
     const root = findRepoRoot() ?? fail("not inside a repo");
     const store = MemoryStore.open(root);
+    if (opts.trust) {
+      const pending = store.untrustedEvidence();
+      if (!pending.length) {
+        console.log("No untrusted evidence — everything runnable was authored or approved on this machine.");
+      } else {
+        console.log(`${pending.length} synced-in evidence command(s) are NOT yet approved to execute here:\n`);
+        for (const u of pending) {
+          console.log(`  [${u.type}] ${u.payload}`);
+          console.log(`      for: "${u.claim.slice(0, 90)}"\n`);
+        }
+        const { ask, close } = await createPrompter("n");
+        const ans = (await ask("Approve ALL of the above to run on this machine? [y/N] ")).trim().toLowerCase();
+        close();
+        if (ans === "y" || ans === "yes") {
+          console.log(`✓ approved ${store.trustAllEvidence()} command(s). They'll run on the next verify.`);
+        } else {
+          console.log("Nothing approved — they stay skipped during verification.");
+        }
+      }
+    }
     const report = verifyAll(store, root, { ids: opts.id, deep: Boolean(opts.deep) });
 
     for (const r of report.results) {
@@ -584,6 +733,32 @@ program
     const memories = store.list(parseInt(opts.limit, 10));
     if (memories.length === 0) console.log("No memories yet. Try `dim remember \"...\"`.");
     for (const m of memories) printMemory(m);
+    store.close();
+  });
+
+program
+  .command("gaps")
+  .description("Knowledge gaps: searches agents/you ran that returned NOTHING — the facts your brain is missing")
+  .option("-d, --days <n>", "Look-back window in days", "30")
+  .option("-n, --limit <n>", "Max entries", "20")
+  .option("--clear", "Clear the search log after showing")
+  .action((opts) => {
+    const store = MemoryStore.open();
+    const gaps = store.searchGaps({ sinceDays: parseInt(opts.days, 10), limit: parseInt(opts.limit, 10) });
+    if (gaps.length === 0) {
+      console.log(`No knowledge gaps in the last ${opts.days} day(s) — every search found something.`);
+    } else {
+      console.log(`${gaps.length} knowledge gap(s) in the last ${opts.days} day(s) — most-asked first:\n`);
+      for (const g of gaps) {
+        const scope = g.paths.length ? `  [scope: ${g.paths.join(", ")}]` : "";
+        console.log(`  ${String(g.misses).padStart(3)}× "${g.query}"${scope}  (last: ${g.lastAsked.slice(0, 10)})`);
+      }
+      console.log(`\nFill a gap: dim remember "<the answer>" -k <kind> [-e TYPE:proof]`);
+    }
+    if (opts.clear) {
+      const n = store.clearSearchGaps();
+      console.log(`\nCleared ${n} logged search(es).`);
+    }
     store.close();
   });
 
@@ -648,19 +823,63 @@ program
 
 program
   .command("ui")
-  .description("Open the local web dashboard (memory list, review queue, visual graph)")
+  .argument("[action]", "start (default) | stop")
+  .description("Manage the local web dashboard (memory list, review queue, visual graph)")
   .option("-p, --port <n>", "Port", "4517")
-  .option("--no-open", "Don't open the browser automatically")
-  .action(async (opts) => {
-    const root = findRepoRoot() ?? fail("not inside a repo");
-    const store = MemoryStore.open(root);
-    const { startUiServer } = await import("../ui/server.js");
-    const url = await startUiServer(store, root, parseInt(opts.port, 10));
-    console.log(`aidimag dashboard: ${url}  (Ctrl+C to stop)`);
-    if (opts.open) {
+  .option("--no-open", "Don't open the browser automatically (start only)")
+  .action(async (action: string | undefined, opts) => {
+    const effectiveAction = action ?? "start";
+    
+    if (effectiveAction === "stop") {
+      const port = parseInt(opts.port, 10);
       const { exec } = await import("node:child_process");
-      const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-      exec(`${opener} ${url}`);
+      const { promisify } = await import("node:util");
+      const execAsync = promisify(exec);
+      
+      try {
+        // Find process listening on the port
+        const cmd = process.platform === "win32"
+          ? `netstat -ano | findstr :${port}`
+          : `lsof -ti:${port}`;
+        
+        const { stdout } = await execAsync(cmd);
+        
+        if (!stdout.trim()) {
+          console.log(`No server found running on port ${port}`);
+          return;
+        }
+        
+        // Kill the process
+        const pids = process.platform === "win32"
+          ? stdout.split("\n").map(line => line.trim().split(/\s+/).pop()).filter(Boolean)
+          : stdout.trim().split("\n");
+        
+        for (const pid of pids) {
+          const killCmd = process.platform === "win32" ? `taskkill /F /PID ${pid}` : `kill ${pid}`;
+          await execAsync(killCmd);
+        }
+        
+        console.log(`✓ Stopped server on port ${port}`);
+      } catch (err) {
+        if (err instanceof Error && "code" in err && err.code === 1) {
+          console.log(`No server found running on port ${port}`);
+        } else {
+          fail(`Failed to stop server: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    } else if (effectiveAction === "start") {
+      const root = findRepoRoot() ?? fail("not inside a repo");
+      const store = MemoryStore.open(root);
+      const { startUiServer } = await import("../ui/server.js");
+      const url = await startUiServer(store, root, parseInt(opts.port, 10));
+      console.log(`aidimag dashboard: ${url}  (Ctrl+C to stop)`);
+      if (opts.open) {
+        const { exec } = await import("node:child_process");
+        const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+        exec(`${opener} ${url}`);
+      }
+    } else {
+      fail(`unknown action '${action}'. Use: start | stop`);
     }
   });
 
@@ -1249,7 +1468,7 @@ knowledge
   .action(async () => {
     const root = findRepoRoot() ?? fail("not inside a repo");
     const { knowledgeStatus } = await import("../knowledge/ingest.js");
-    const s = knowledgeStatus(root, resolveKnowledgeConfig(root));
+    const s = await knowledgeStatus(root, resolveKnowledgeConfig(root));
     console.log(`Knowledge inbox: ${s.folder}/`);
     console.log(`  pending      ${s.pending.length}${s.pending.length ? "  → run `dim knowledge sync`" : ""}`);
     for (const p of s.pending) console.log(`    • ${p.file} (${p.bytes} bytes)`);

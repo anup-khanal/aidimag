@@ -162,9 +162,29 @@ function runExecTrace(ev: Evidence, repoRoot: string): RunOutcome {
 export interface RunOptions {
   /** Run the expensive tier (TEST_RESULT, EXEC_TRACE). Default false — cheap tier only. */
   deep?: boolean;
+  /**
+   * Trust gate for executable evidence (STATIC_CHECK/TEST_RESULT/EXEC_TRACE):
+   * payloads run shell commands, so only locally-approved ones may execute.
+   * Returns true if the payload is approved on this machine. Omitted = trust
+   * everything (unit tests / explicit --trust runs).
+   */
+  isTrusted?: (payload: string) => boolean;
 }
 
+const EXECUTABLE_TYPES = new Set<Evidence["type"]>(["STATIC_CHECK", "TEST_RESULT", "EXEC_TRACE"]);
+
 export function runEvidence(ev: Evidence, repoRoot: string, opts: RunOptions = {}): RunOutcome {
+  // Supply-chain guard: evidence that arrived via team sync is shell code
+  // someone else wrote. It never executes until approved on this machine
+  // (`dim verify --trust` to review & approve).
+  if (EXECUTABLE_TYPES.has(ev.type) && opts.isTrusted && !opts.isTrusted(ev.payload)) {
+    return {
+      evidenceId: ev.id,
+      type: ev.type,
+      result: "SKIPPED",
+      detail: "untrusted (synced) evidence — inspect & approve with `dim verify --trust`",
+    };
+  }
   switch (ev.type) {
     case "STATIC_CHECK":
       return runStaticCheck(ev, repoRoot);

@@ -20,6 +20,8 @@ export interface ExtractedClaim {
   guardrailLevel?: GuardrailLevel;
   /** short note on why this is durable / where in the doc it came from */
   rationale?: string;
+  /** optional STATIC_CHECK shell command that passes iff the claim holds */
+  staticCheck?: string;
 }
 
 const KINDS: MemoryKind[] = [
@@ -63,6 +65,8 @@ interface RawClaim {
   guardrail_level?: unknown;
   guardrailLevel?: unknown;
   rationale?: unknown;
+  static_check?: unknown;
+  staticCheck?: unknown;
 }
 
 function asStringArray(v: unknown): string[] | undefined {
@@ -107,6 +111,8 @@ export function parseClaims(raw: string): ExtractedClaim[] {
     if (paths) out.paths = paths;
     if (symbols) out.symbols = symbols;
     if (typeof item.rationale === "string" && item.rationale.trim()) out.rationale = item.rationale.trim();
+    const sc = item.static_check ?? item.staticCheck;
+    if (typeof sc === "string" && sc.trim()) out.staticCheck = sc.trim();
 
     if (kind === "GUARDRAIL") {
       const lvl = String(item.guardrail_level ?? item.guardrailLevel ?? "ask-first").toLowerCase() as GuardrailLevel;

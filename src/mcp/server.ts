@@ -3,7 +3,9 @@
  * aidimag MCP server — exposes repo memory to any MCP-compatible agent
  * (Claude Code, Cursor, Copilot, ...) over stdio.
  *
- * Tools: memory_search, memory_get_for_files, memory_write, memory_refute, memory_status
+ * Tools: memory_search, memory_get_for_files, memory_write, memory_refute, memory_status,
+ *        context_note (passive in-chat fact capture), … — searches are logged so zero-hit
+ *        queries surface as coverage gaps (`dim gaps`).
  * Resource: aidimag://digest — repo memory digest for session bootstrapping.
  */
 
@@ -104,7 +106,17 @@ async function main() {
         paths: args.paths,
         limit: args.limit,
       });
-      return { content: [{ type: "text", text: renderList(results) }] };
+      try {
+        store.logSearch(args.query, args.paths ?? [], results.length, "mcp");
+      } catch {
+        /* logging is best-effort; never break search */
+      }
+      let text = renderList(results);
+      if (results.length === 0) {
+        text +=
+          "\n(Coverage gap logged. If you learn the answer this session — from the code or the user — persist it with context_note or memory_propose so future sessions don't hit this gap.)";
+      }
+      return { content: [{ type: "text", text }] };
     }
   );
 
@@ -266,6 +278,61 @@ async function main() {
   );
 
   server.tool(
+    "context_note",
+    "Capture a durable fact the USER just stated in chat, IMMEDIATELY when they say it — don't wait for session end. Trigger on statements like 'we use X because Y', 'never touch Z', 'the deploy flow is …', 'we tried A and it failed'. Only durable, codebase-relevant facts (skip task-specific chatter). The note is queued for human review; user-stated facts carry high trust.",
+    {
+      statement: z
+        .string()
+        .min(10)
+        .describe("The fact, rephrased as a falsifiable claim about the codebase (e.g. 'Payments retries are handled in src/queue; handlers must be idempotent')"),
+      kind: z.enum(KINDS).describe("Best-fit memory kind (e.g. user says 'never do X' → GUARDRAIL, 'we tried X, failed' → FAILED_APPROACH, 'we always X' → CONVENTION)"),
+      quote: z.string().optional().describe("The user's own words, verbatim (preserves nuance for the reviewer)"),
+      paths: z.array(z.string()).optional().describe("Repo-relative paths the fact applies to (omit for repo-wide)"),
+      symbols: z.array(z.string()).optional().describe("Symbols (functions/classes) it applies to"),
+      guardrail_level: z
+        .enum(GUARDRAIL_LEVELS)
+        .optional()
+        .describe("For kind=GUARDRAIL: never | always | ask-first"),
+      agent_id: z.string().optional().describe("Your agent identifier, e.g. 'claude-code'"),
+    },
+    async (args) => {
+      const root = process.env.AIDIMAG_REPO ?? findRepoRoot() ?? process.cwd();
+      const ticketRef = detectBranchTicket(root) ?? undefined;
+      // User-stated facts are attestations: HUMAN_ATTESTED evidence verifies once
+      // on approval (then decays fastest), giving them a higher-trust start than
+      // agent-inferred proposals without pretending they're machine-checkable.
+      const evidence: Array<{ type: (typeof EVIDENCE_TYPES)[number]; payload: string }> = [
+        { type: "HUMAN_ATTESTED", payload: args.quote?.trim() || `stated by user in chat, ${new Date().toISOString().slice(0, 10)}` },
+      ];
+      if (ticketRef) evidence.push({ type: "TICKET_REF", payload: ticketRef });
+      const p = store.propose({
+        kind: args.kind,
+        claim: args.statement,
+        paths: args.paths,
+        symbols: args.symbols,
+        evidence,
+        rationale: args.quote
+          ? `User said (verbatim): "${args.quote.trim()}"`
+          : "Stated directly by the user in an AI chat session.",
+        ticketRef,
+        guardrailLevel: args.guardrail_level,
+        source: `context:${args.agent_id ?? "agent"}`,
+      });
+      if (!p) {
+        return { content: [{ type: "text", text: "Already captured — an identical note is in the review queue." }] };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Noted (proposal id=${p.id}). Queued for \`dim review\`; continue the conversation — no need to mention this unless asked.`,
+          },
+        ],
+      };
+    }
+  );
+
+  server.tool(
     "memory_critique",
     "Review what you just did (or plan to do) against the project's VERIFIED memory and guardrails — a 'second critic' grounded in real, falsifiable beliefs rather than another model's opinion. Call BEFORE committing or proposing memories. Resolve guardrail violations and contradictions first.",
     {
@@ -363,7 +430,7 @@ async function main() {
     async () => {
       const root = process.env.AIDIMAG_REPO ?? findRepoRoot() ?? process.cwd();
       const cfg = resolveKnowledgeConfig(root);
-      const { pending, toSkip } = classifyInbox(root, cfg);
+      const { pending, toSkip } = await classifyInbox(root, cfg);
       const lines: string[] = [];
       lines.push(pending.length ? `${pending.length} doc(s) pending in ${cfg.folder}/:` : `No docs pending in ${cfg.folder}/.`);
       for (const d of pending) lines.push(`  • ${d.file} (${d.bytes} bytes, sha256 ${d.hash.slice(0, 12)})`);
@@ -389,7 +456,7 @@ async function main() {
     async (args) => {
       const root = process.env.AIDIMAG_REPO ?? findRepoRoot() ?? process.cwd();
       const cfg = resolveKnowledgeConfig(root);
-      const { pending } = classifyInbox(root, cfg);
+      const { pending } = await classifyInbox(root, cfg);
       const doc = pending.find((d) => d.file === args.file);
       if (!doc) {
         return {
@@ -400,7 +467,7 @@ async function main() {
       const claims = parseClaims(args.claims);
       const result = finalizeDoc(store, root, cfg, { file: doc.file, hash: doc.hash, abs: doc.abs }, claims, "agent:mcp");
       const tail = result.pinned
-        ? `auto-approved as ${result.memoryIds.length} PINNED memory(ies).`
+        ? `auto-approved as ${result.memoryIds.length} ACTIVE (unpinned) memory(ies) — requireReview is off; no human reviewed them.`
         : `queued as ${result.proposalIds.length} proposal(s) — approve with \`dim review\`.`;
       return { content: [{ type: "text", text: `Ingested ${doc.file}: ${result.claimCount} claim(s) ${tail}` }] };
     }
@@ -409,10 +476,10 @@ async function main() {
   server.prompt(
     "knowledge_ingest",
     "Process the knowledge inbox in-session: read each pending doc, extract durable falsifiable claims, and submit them with knowledge_ingest_submit (queued for `dim review`).",
-    () => {
+    async () => {
       const root = process.env.AIDIMAG_REPO ?? findRepoRoot() ?? process.cwd();
       const cfg = resolveKnowledgeConfig(root);
-      const { pending, toSkip } = classifyInbox(root, cfg);
+      const { pending, toSkip } = await classifyInbox(root, cfg);
       let text: string;
       if (pending.length === 0) {
         text =
@@ -454,12 +521,12 @@ async function main() {
   server.prompt(
     "session_start",
     "Run at the START of a coding session: surfaces in-scope memory, guardrails, stale warnings, and clarifying questions to ask the user before writing any code.",
-    () => {
+    async () => {
       const root = process.env.AIDIMAG_REPO ?? findRepoRoot() ?? process.cwd();
       const briefing = buildSessionBriefing(store, root);
       let text = sessionStartPrompt(briefing);
       // Catch-up trigger: nudge the agent to drain any docs sitting in the knowledge inbox.
-      const { pending } = classifyInbox(root, resolveKnowledgeConfig(root));
+      const { pending } = await classifyInbox(root, resolveKnowledgeConfig(root));
       if (pending.length) {
         text +=
           `\n\n---\n📚 ${pending.length} document(s) are waiting in the knowledge inbox ` +
@@ -504,4 +571,3 @@ main().catch((err) => {
   console.error("aidimag MCP server failed:", err);
   process.exit(1);
 });
-

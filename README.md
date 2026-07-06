@@ -47,6 +47,7 @@ dim status
 | Command | Description |
 | --- | --- |
 | `dim init` | Initialize `.aidimag/` in the current repo |
+| `dim bootstrap` | **Instant starter brain**: survey README/docs/manifests/structure/git-churn, LLM-extract an initial memory set with suggested checks (queued for review; idempotent, `--force` to re-run) |
 | `dim remember "<claim>"` | Store a memory (`-k` kind, `-p` paths, `-e TYPE:payload` evidence, `-g never\|ask-first\|always` for `GUARDRAIL`, `--pin`) |
 | `dim recall <query>` | Search memories — hybrid keyword + semantic (`-p` to scope to files) |
 | `dim reindex` | Build/refresh semantic embeddings for all memories |
@@ -54,16 +55,18 @@ dim status
 | `dim generate-context` | Render verified memory into static context files (`-f claude\|cursorrules\|copilot\|all`); `--auto`/`--no-auto` keeps them refreshed after verify/review/sync |
 | `dim check` | Pre-commit contradiction check: scan the staged diff against active memories + guardrails (`--block` to exit 1, `-r <ref>` to diff a ref) |
 | `dim brief` | Print a session-start briefing: in-scope memory, guardrails, stale warnings, and questions to ask before coding |
-| `dim mine` | Mine git history for memory candidates (`--full` to rescan all) |
-| `dim review [approve\|reject] [id\|all]` | Review the proposal queue — plain `dim review` opens a conversational walkthrough (keep / reword / drop / skip per proposal) |
-| `dim verify` | Re-run evidence, update statuses (`--deep` for tests/exec, `-q` for hooks, `-i <id>` to scope; exit 2 if anything went stale) |
+| `dim mine` | Mine git history for memory candidates (`--full` to rescan all; `--llm` = deep mining: the LLM reads each commit's message **and diff** and synthesizes claims + suggested checks) |
+| `dim harvest` | Harvest durable facts YOU typed into AI chats (Claude Code transcripts, secrets redacted, local-only) into the review queue (`--all`, `--install-hook` for a SessionEnd hook) |
+| `dim review [approve\|reject] [id\|all]` | Review the proposal queue — **auto-triaged best-first** (evidence, source trust, scope; penalized for similarity to past rejections). Plain `dim review` opens a conversational walkthrough; `approve all --min-score 0.7` batch-approves above a bar |
+| `dim verify` | Re-run evidence, update statuses (`--deep` for tests/exec, `-q` for hooks, `-i <id>` to scope, `--trust` to review & approve synced-in evidence commands; exit 2 if anything went stale). Memories that flip to STALE auto-draft a **recovery proposal** so staleness never dead-ends |
 | `dim ticket connect\|status\|show\|share\|branch-rule` | Connect Jira / GitHub Issues / Linear / your own HTTP middleware / the team sync server (interactive flow) — proposals then carry ticket context. `share` puts the team credential on the sync server (members hold zero ticket tokens); `branch-rule` manages the branch convention and prints GitHub/GitLab/Bitbucket server-side rules |
 | `dim branch <ticket-id>` | Create a convention-conforming branch (fetches the ticket title for the slug when connected) |
 | `dim log` | Recent memories |
+| `dim gaps` | Knowledge gaps: zero-hit searches from agents/CLI — the facts your brain is missing (`-d <days>`, `--clear`) |
 | `dim pin <id>` / `dim unpin <id>` | Pin/unpin a memory (pinned = exempt from time decay, still falsifiable by evidence) |
 | `dim refute <id>` | Mark a memory REFUTED — kept as negative knowledge (unlike `forget`, which deletes) |
 | `dim forget <id>` | Delete a memory |
-| `dim ui` | Web dashboard covering every workflow — add/search memories, review queue, verify, mine, sync, cloud link, API keys, memory graph (`-p <port>`, default 4517) |
+| `dim ui [start\|stop]` | Web dashboard covering every workflow — add/search memories, review queue, verify, mine, sync, cloud link, API keys, memory graph (`-p <port>`, default 4517; `stop` to stop the server) |
 | `dim serve` | Run a self-hosted team sync server (`--token`, `--db`, `--port`) |
 | `dim login` / `dim logout` | Device-code login: approve this machine in the browser, token saved locally |
 | `dim cloud link\|status\|unlink` | Bind the repo to a sync server brain |
@@ -75,11 +78,18 @@ dim status
 
 Nothing enters active memory without human approval:
 
+0. **Repo bootstrap** — `dim bootstrap` (suggested by `dim init`) surveys the repo — README/
+   docs/ADRs, manifests, existing `CLAUDE.md`/`.cursorrules`, directory shape, most-churned
+   files — and LLM-extracts an initial set of falsifiable claims with suggested
+   `STATIC_CHECK`s. Day-one brain, review-gated, idempotent.
 1. **Commit miner** — runs automatically on every `git commit` (post-commit hook,
    installed by `dim init`): the new commit is scanned for decision/gotcha/failed-approach
    signals, and if something looks memory-worthy you get a one-line nudge
    (`🧠 aidimag: this commit looks memory-worthy — review with dim review`).
    Also runnable manually: `dim mine` (incremental, cursor-tracked) or `dim mine --full`.
+   **`dim mine --llm`** is the deep tier: the LLM reads each commit's message *and diff*
+   and synthesizes real falsifiable claims with suggested `STATIC_CHECK`s — far higher
+   quality than the keyword heuristics (which remain the zero-config/hook fallback).
    Merge/squash commits are mined too — GitHub PR titles and descriptions in merge
    bodies are promoted to the claim. Each candidate is anchored with `COMMIT_REF`
    evidence and queued as a proposal. **Ticket-aware**: the ticket id is extracted
@@ -87,9 +97,24 @@ Nothing enters active memory without human approval:
    with a provider connected (`dim ticket connect`), review shows live ticket context.
 2. **Session-end extraction** — agents invoke the `session_end_extraction` MCP prompt and
    call `memory_propose` with falsifiable, evidence-backed claims.
-3. **Review** — `dim review` walks you through the queue conversationally:
+3. **In-chat context notes** — the `context_note` MCP tool captures durable facts the
+   *user* states mid-conversation ("we use X because Y", "never touch Z") the moment they
+   say them — verbatim quote preserved, `HUMAN_ATTESTED` evidence attached, queued for review.
+4. **Chat transcript harvesting** — `dim harvest` mines the local Claude Code session
+   transcripts for this repo (`~/.claude/projects/<slug>/*.jsonl`) and LLM-extracts the
+   facts you typed into falsifiable claims (secret-looking lines redacted first; local-only).
+   `dim harvest --install-hook` wires a Claude Code `SessionEnd` hook so it runs per-session.
+5. **Knowledge-gap logging** — every `memory_search` / `dim recall` is logged locally;
+   zero-hit queries are surfaced by `dim gaps` and in the session briefing, so the questions
+   your brain *couldn't* answer become prompts to fill them.
+6. **Review** — `dim review` walks you through the queue conversationally:
    keep, reword before saving, drop, or skip each proposal (`list`/`approve`/`reject`
    subcommands remain for scripting; dedupe prevents re-proposal of rejected claims).
+   The queue is **auto-triaged**: proposals are scored (machine-checkable evidence,
+   source trust, concrete scope) and penalized for similarity to claims you previously
+   rejected (the correction loop) or to existing memory — you always see the best
+   candidates first, and `dim review approve all --min-score 0.7` batch-approves
+   above a bar.
 
 ## Verification (the wedge)
 
@@ -100,6 +125,16 @@ Memories are falsifiable claims; `dim verify` re-runs their evidence against the
 - **`TEST_RESULT`** — payload is a test command, run with `CI=1`; exit 0 = PASS *(deep tier: `--deep`)*
 - **`EXEC_TRACE`** — payload is `command :: expected-output-regex`; the claim holds iff observed output matches *(deep tier: `--deep`)*
 - **`HUMAN_ATTESTED`** — verifies once on attestation, then decays fastest (14-day half-life)
+
+**Evidence trust gate (supply-chain guard)**: executable evidence runs shell commands on
+your machine — automatically, via git hooks. Payloads authored locally (`dim remember`,
+proposal approval) are trusted; payloads that arrive via **team sync are never executed
+until you inspect and approve them** with `dim verify --trust`. Until then they're
+skipped and can't flip statuses.
+
+**Staleness is a capture trigger, not a dead end**: when a memory newly flips to STALE,
+aiDimag drafts a recovery proposal in the review queue ("this belief's evidence now fails —
+code drift or outdated claim?") so every broken belief gets a decision, not silence.
 
 **Lifecycle**: any evidence FAILs → **STALE** (confidence floored to 0.20); all evidence PASSes → **VERIFIED** (confidence +0.10, capped 0.95). A recovered memory re-earns trust gradually. **REFUTED** is never automatic — it stays a deliberate human/agent action.
 
@@ -193,6 +228,10 @@ dim sync
   revocable, brain-scoped member keys instead of sharing it:
   `AIDIMAG_ADMIN_TOKEN=… dim keys create --brain myrepo --label alice` →
   `aidimag_sk_…` (only valid for that brain; `dim keys revoke` kills it instantly).
+  **Hardened**: keys and account tokens are stored **SHA-256-hashed at rest** (a leaked
+  server DB leaks no live credentials), the unauthenticated device-auth endpoints are
+  **rate-limited per IP** (20/min — user codes can't be brute-forced within their TTL),
+  and error responses never echo internals.
 - **Hosted deployment**: see [deploy/README.md](./deploy/README.md) — Dockerfile +
   Fly.io config, ~10 minutes to a private hosted server.
 
@@ -226,7 +265,7 @@ Add to your agent config (e.g. `.mcp.json` for Claude Code):
 }
 ```
 
-**Tools**: `memory_search`, `memory_get_for_files`, `memory_write`, `memory_propose`, `memory_verify`, `memory_refute`, `memory_status`, `memory_critique`, `proposals_pending`, `ticket_get`
+**Tools**: `memory_search`, `memory_get_for_files`, `memory_write`, `memory_propose`, `context_note` (in-chat fact capture: the moment the user states a durable fact — "we use X because Y", "never touch Z" — the agent notes it into the review queue with `HUMAN_ATTESTED` evidence), `memory_verify`, `memory_refute`, `memory_status`, `memory_critique`, `proposals_pending`, `ticket_get`. Every `memory_search` is logged locally; zero-hit queries become **coverage gaps** (`dim gaps`) — the questions agents asked that memory couldn't answer.
 **Prompts**: `session_start` — briefing + interview to run before coding · `session_end_extraction` — capture durable learnings at session end
 **Resources**: `aidimag://digest` — repo memory digest · `aidimag://session-briefing` — in-scope memory, guardrails, stale warnings, and gaps
 
@@ -247,6 +286,10 @@ SaaS groundwork ✅ — `dim login`/`logout` (device-code flow), append-only eve
 Tickets T1–T5 ✅ — ticket-id extraction (branch/commit, offline), `TicketProvider` contract with Jira/GitHub/Linear/HTTP adapters (interactive `dim ticket connect`), `TICKET_REF` evidence, review-time enrichment, branch convention enforcement, team-shared credentials via sync server, public HttpProvider contract ([HTTP_PROVIDER.md](./HTTP_PROVIDER.md)), ticket-aware session end with MCP `ticket_get` tool.
 Pinned memories ✅ — `dim pin`/`unpin`: exempt from time decay, still falsifiable by evidence (both IDE extensions support pin/unpin).
 Karpathy 3-layer ✅ — `dim generate-context` (CLAUDE.md/.cursorrules/copilot-instructions, with `--auto` refresh on verify/review/sync), `GUARDRAIL` + `SKILL` memory kinds, `dim check` pre-commit contradiction detector (opt-in hook), `memory_critique` MCP tool, `dim brief` + `session_start` MCP prompt/`aidimag://session-briefing` resource. Both IDE extensions surface the new kinds (VSCode 0.5.0, IntelliJ 0.3.0).
+Passive capture ✅ — `context_note` MCP tool (live in-chat fact capture with verbatim quotes + `HUMAN_ATTESTED` evidence), `dim harvest` (Claude Code transcript mining, secret redaction, `--install-hook` SessionEnd automation), search-gap logging (`dim gaps`, zero-hit queries surfaced in `dim brief`/`session_start`).
+Cold-start & capture quality ✅ — `dim bootstrap` (day-one starter brain from repo survey with suggested checks), `dim mine --llm` (diff-aware LLM commit mining), STALE → recovery proposals (staleness never dead-ends), review-queue auto-triage with correction-loop penalty (`dim review approve all --min-score`).
+Security hardening ✅ — evidence trust gate (synced-in shell commands never execute until locally approved via `dim verify --trust`), sync-server credentials hashed at rest, per-IP rate limiting on device auth, no internal error leakage; `knowledge.requireReview:false` auto-approvals no longer pin.
+Test suite ✅ — 23 unit tests across the store (lifecycle, proposals, gaps, trust gate), capture pipeline (triage, harvest, extraction, miner), and verification engine (decay math, lifecycle, trust gate, stale recovery).
 
 ## Karpathy 3-Layer Integration (shipped — see [KARPATHY_LAYERS.md](./KARPATHY_LAYERS.md))
 
@@ -270,16 +313,19 @@ that flow into `CLAUDE.md` and every AI tool via `dim generate-context`.
 
 - **Curate the source, review the claims** — you vouch the *document* is relevant; a
   machine writes the *claims*, so extracted claims enter the proposal queue and become
-  pinned only after `dim review` approval (default on; `knowledge.requireReview: false`
-  opt-out). Pinned memories never decay and lead the generated context, so they carry the
-  highest blast radius — the review gate stays.
+  pinned only after `dim review` approval (default on). Opting out with
+  `knowledge.requireReview: false` auto-approves — but as **unpinned** memories that stay
+  subject to decay and evidence checks: pinning (highest blast radius) always requires a
+  human. Pin the keepers with `dim pin`.
 - **Summarizer** — connected MCP agent preferred, OpenAI/Ollama fallback. With neither
   available, files **wait in the inbox** (the inbox is the pending queue) and are
   auto-summarized the moment an agent or provider appears. Manual `dim remember --pin` is
   always an offline escape hatch.
 - **Originals are never deleted** — backed up to `.aidimag/knowledge/processed/`, with a
   reviewable plain-text summary at `.aidimag/knowledge/<doc>.summary.md`.
-- **Unsupported files** (binaries, oversized, empty; PDF/DOCX is a fast-follow) are set
+- **PDF and DOCX are supported** — text is extracted locally (`pdf-parse` / `mammoth`)
+  before summarization; scanned/image-only PDFs are skipped with a reason.
+- **Unsupported files** (other binaries, oversized, empty) are set
   aside in `.aidimag/knowledge/skipped/` with a reason — never processed, never deleted.
   Large text docs are **chunked** into multiple scoped, deduplicated memories.
 - **Surface area**: `dim knowledge sync | watch | status | list`, a `knowledge_ingest` MCP
@@ -291,6 +337,6 @@ that flow into `CLAUDE.md` and every AI tool via `dim generate-context`.
 
 ### Other
 
-npm publish; hosted SaaS top layer (GitHub OAuth, Postgres, billing per [CLOUD_DESIGN.md](./CLOUD_DESIGN.md)); ticket open questions (multi-pattern repos, redaction) per [TICKETS_DESIGN.md](./TICKETS_DESIGN.md); automated test suite + CI.
+npm publish; hosted SaaS top layer (GitHub OAuth, Postgres, billing per [CLOUD_DESIGN.md](./CLOUD_DESIGN.md)); PR review-comment mining (GitHub Action / `gh` integration); Cursor/Copilot chat-history harvesting + `@dimag` VS Code chat participant; closed-ticket mining; container isolation for deep-tier evidence runners; CLI monolith split; ticket open questions (multi-pattern repos, redaction) per [TICKETS_DESIGN.md](./TICKETS_DESIGN.md); CI workflow for the test suite.
 
 

@@ -76,11 +76,26 @@ local append-only **event log** and shipped on sync. The server aggregates verif
 reports across machines, so you can answer: *"How many machines confirm this memory passes at
 commit X?"* — turning one developer's green check into team-wide confidence.
 
+## Security
+
+- **Evidence trust gate** — synced-in memories can carry executable evidence (shell
+  commands). Those are **never executed on your machine** until you inspect and approve
+  them once with `dim verify --trust`; until then verification simply skips them. Evidence
+  you wrote or approved locally is trusted automatically. See
+  [Verifying memories](/guides/verifying#evidence-trust-gate-team-sync).
+- **Credentials are hashed at rest** — the server stores only SHA-256 hashes of API keys
+  and account tokens (existing plaintext rows are migrated automatically). `dim keys list`
+  shows fingerprints, not secrets.
+- **Rate limiting** — the unauthenticated device-login endpoints are limited per IP, so
+  short user codes can't be brute-forced.
+- **Generic errors** — the server never leaks internal error details to clients; specifics
+  go to the server log only.
+
 ## Check status
 
 ```sh
 dim cloud status
 ```
 
-Next: **[Knowledgebase (planned)](/guides/knowledgebase)**.
+Next: **[Knowledgebase](/guides/knowledgebase)**.
 

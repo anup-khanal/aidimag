@@ -5,7 +5,7 @@
 
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import path from "node:path";
@@ -174,6 +174,7 @@ export class MemoryStore {
         "INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
       )
       .run(String(SCHEMA_VERSION));
+    this.migrateEvidenceTrust();
   }
 
   /** Open the store for the repo containing `cwd`. Throws if not initialized and create=false. */
@@ -264,6 +265,9 @@ export class MemoryStore {
       );
       for (const ev of input.evidence ?? []) {
         evStmt.run(randomUUID(), id, ev.type, ev.payload);
+        // locally-authored evidence is trusted to execute (you or your agent
+        // wrote it on this machine); synced-in evidence is NOT auto-trusted.
+        this.trustEvidencePayload(ev.payload);
       }
       this.recordEvent("memory_created", id, {
         kind: input.kind,
@@ -274,6 +278,65 @@ export class MemoryStore {
     insert();
 
     return this.get(id)!;
+  }
+
+  // ---------------------------------------------------------------- evidence trust gate
+  // Executable evidence (STATIC_CHECK / TEST_RESULT / EXEC_TRACE) runs shell
+  // commands on THIS machine — including automatically via git hooks. A synced
+  // teammate's (or attacker's) memory must not become remote code execution:
+  // only payloads approved on this machine ever execute. Local writes and
+  // local proposal approvals auto-trust; `dim verify --trust` reviews the rest.
+
+  private static evTrustKey(payload: string): string {
+    return `evtrust:${createHash("sha256").update(payload).digest("hex").slice(0, 16)}`;
+  }
+
+  /** Mark an evidence payload as approved to execute on this machine. */
+  trustEvidencePayload(payload: string): void {
+    this.setMeta(MemoryStore.evTrustKey(payload), new Date().toISOString());
+  }
+
+  isEvidencePayloadTrusted(payload: string): boolean {
+    return this.getMeta(MemoryStore.evTrustKey(payload)) !== null;
+  }
+
+  /** Executable-evidence payloads currently NOT trusted (i.e. arrived via sync). */
+  untrustedEvidence(): Array<{ memoryId: string; claim: string; type: string; payload: string }> {
+    const rows = this.db
+      .prepare(
+        `SELECT e.memory_id, m.claim, e.type, e.payload FROM evidence e
+         JOIN memories m ON m.id = e.memory_id
+         WHERE e.type IN ('STATIC_CHECK','TEST_RESULT','EXEC_TRACE')`
+      )
+      .all() as Array<{ memory_id: string; claim: string; type: string; payload: string }>;
+    return rows
+      .filter((r) => !this.isEvidencePayloadTrusted(r.payload))
+      .map((r) => ({ memoryId: r.memory_id, claim: r.claim, type: r.type, payload: r.payload }));
+  }
+
+  /** Trust every currently-untrusted executable payload (after human inspection). Returns count. */
+  trustAllEvidence(): number {
+    const pending = this.untrustedEvidence();
+    for (const p of pending) this.trustEvidencePayload(p.payload);
+    return pending.length;
+  }
+
+  /**
+   * One-time migration: evidence that existed before the trust gate shipped
+   * was locally authored (sync always re-writes through applyRemoteMemory,
+   * which doesn't trust) — grandfather it so `dim verify` keeps working.
+   */
+  private migrateEvidenceTrust(): void {
+    if (this.getMeta("evtrust_migrated")) return;
+    try {
+      const rows = this.db
+        .prepare("SELECT DISTINCT payload FROM evidence WHERE type IN ('STATIC_CHECK','TEST_RESULT','EXEC_TRACE')")
+        .all() as Array<{ payload: string }>;
+      for (const r of rows) this.trustEvidencePayload(r.payload);
+    } catch {
+      /* evidence table always exists post-SCHEMA_SQL; belt and braces */
+    }
+    this.setMeta("evtrust_migrated", new Date().toISOString());
   }
 
   // ---------------------------------------------------------------- read
@@ -514,7 +577,7 @@ export class MemoryStore {
    * `overrides.claim` lets the reviewer reword the claim before it becomes memory
    * (conversational review) — provenance still points at the original proposal.
    */
-  approveProposal(id: string, overrides?: { claim?: string }): MemoryEntry {
+  approveProposal(id: string, overrides?: { claim?: string; pinned?: boolean }): MemoryEntry {
     const p = this.findProposalByPrefix(id);
     if (!p) throw new Error(`No proposal matching id '${id}'`);
     if (p.status !== "PENDING") throw new Error(`Proposal ${p.id} is already ${p.status}`);
@@ -528,7 +591,8 @@ export class MemoryStore {
       guardrailLevel: p.guardrailLevel,
       // Knowledgebase docs are curated reference material — pin on approval so
       // they don't decay with age (still falsifiable if evidence fails).
-      pinned: p.source.startsWith("knowledge:"),
+      // Callers can override (e.g. requireReview:false auto-approval never pins).
+      pinned: overrides?.pinned ?? p.source.startsWith("knowledge:"),
     });
     this.db
       .prepare("UPDATE proposals SET status = 'APPROVED', memory_id = ?, updated_at = ? WHERE id = ?")
@@ -553,6 +617,65 @@ export class MemoryStore {
       .prepare("SELECT * FROM proposals WHERE id = ? OR id LIKE ? || '%' LIMIT 1")
       .get(idOrPrefix, idOrPrefix) as Record<string, unknown> | undefined;
     return row ? this.hydrateProposal(row) : null;
+  }
+
+  // ---------------------------------------------------------------- search log (passive capture)
+
+  /**
+   * Record a memory search (MCP or CLI). Zero-hit queries are coverage gaps:
+   * an agent needed knowledge the brain couldn't supply. Local-only, never synced.
+   */
+  logSearch(query: string, paths: string[], resultCount: number, source = "mcp"): void {
+    const q = query.trim();
+    if (!q) return;
+    this.db
+      .prepare(
+        "INSERT INTO search_log (id, query, paths, result_count, source, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      )
+      .run(randomUUID(), q, JSON.stringify(paths), resultCount, source, new Date().toISOString());
+  }
+
+  /**
+   * Zero-hit searches grouped by normalized query — the repo's knowledge gaps,
+   * most-asked first. `sinceDays` bounds the window (default 30).
+   */
+  searchGaps(opts: { sinceDays?: number; limit?: number } = {}): Array<{
+    query: string;
+    misses: number;
+    lastAsked: string;
+    paths: string[];
+  }> {
+    const since = new Date(Date.now() - (opts.sinceDays ?? 30) * 86_400_000).toISOString();
+    const rows = this.db
+      .prepare(
+        `SELECT LOWER(TRIM(query)) AS q, MAX(query) AS query, COUNT(*) AS misses,
+                MAX(created_at) AS last_asked, MAX(paths) AS paths
+         FROM search_log
+         WHERE result_count = 0 AND created_at >= ?
+         GROUP BY q
+         ORDER BY misses DESC, last_asked DESC
+         LIMIT ?`
+      )
+      .all(since, Math.min(opts.limit ?? 20, 100)) as Array<{
+      query: string;
+      misses: number;
+      last_asked: string;
+      paths: string;
+    }>;
+    return rows.map((r) => {
+      let paths: string[] = [];
+      try {
+        paths = JSON.parse(r.paths);
+      } catch {
+        /* legacy/garbled row — treat as unscoped */
+      }
+      return { query: r.query, misses: r.misses, lastAsked: r.last_asked, paths };
+    });
+  }
+
+  /** Clear logged searches (e.g. after the gaps have been addressed). */
+  clearSearchGaps(): number {
+    return this.db.prepare("DELETE FROM search_log").run().changes;
   }
 
   /** Last mined commit sha (commit-miner cursor), or null. */

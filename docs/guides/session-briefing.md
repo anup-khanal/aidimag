@@ -30,9 +30,13 @@ in scope: 4 changed file(s)
 ## No memory coverage
 - src/payments/new-flow.ts
 
+## Unanswered questions (searches that found nothing)
+- "webhook retry policy" (asked 3×)
+
 ## Ask the user before guessing
 - A INVARIANT for src/billing is STALE — has it changed?
 - No memory covers src/payments/new-flow.ts — want me to explore it first?
+- Past sessions searched for "webhook retry policy" and found nothing — do you know the answer?
 ```
 
 ## What it pulls together
@@ -44,6 +48,8 @@ The briefing looks at your current branch (and the files changed on it) and surf
   files.
 - **Stale warnings** — memory you should *not* trust until re-verified.
 - **Coverage gaps** — changed files no memory knows anything about.
+- **Unanswered questions** — recent searches (yours or an agent's) that found *nothing*;
+  the questions the brain keeps being asked but can't answer (see `dim gaps`).
 - **Suggested questions** — things to ask the human instead of guessing.
 
 ## For agents (MCP)

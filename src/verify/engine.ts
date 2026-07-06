@@ -74,9 +74,13 @@ export function verifyMemory(
 ): MemoryVerification {
   const outcomes: RunOutcome[] = [];
   const now = new Date().toISOString();
+  const runOpts: RunOptions = {
+    isTrusted: (payload) => store.isEvidencePayloadTrusted(payload),
+    ...opts,
+  };
 
   for (const ev of memory.grounding) {
-    const outcome = runEvidence(ev, repoRoot, opts);
+    const outcome = runEvidence(ev, repoRoot, runOpts);
     outcomes.push(outcome);
     if (outcome.result !== "SKIPPED") {
       store.updateEvidenceResult(ev.id, outcome.result, now);
@@ -163,14 +167,33 @@ export function verifyAll(
 
   const results = memories.map((m) => verifyMemory(store, m, repoRoot, { deep: opts.deep }));
 
+  // Staleness is a capture trigger, not a dead end: when a memory NEWLY flips
+  // to STALE, draft a review-queue proposal so the human decides whether the
+  // code drifted (fix + re-verify) or the belief is outdated (approve the
+  // replacement / refute the original). Dedupe absorbs repeat runs.
+  for (const r of results) {
+    if (r.after !== "STALE" || r.before === "STALE") continue;
+    const failed = r.outcomes.filter((o) => o.result === "FAIL");
+    store.propose({
+      kind: "TODO_CONTEXT",
+      claim:
+        `Stale belief needs revisiting: "${r.claim.slice(0, 200)}" — its evidence now fails ` +
+        `(${failed.map((f) => `${f.type}: ${f.detail}`).join("; ").slice(0, 200)}). ` +
+        `Either the code drifted (fix and re-verify) or the claim is outdated (update or refute it).`,
+      source: "verify:stale",
+      sourceRef: r.memoryId,
+      rationale: `Memory ${r.memoryId.slice(0, 8)} went ${r.before} → STALE during verification.`,
+    });
+  }
+
   // CLOUD_DESIGN consensus input: one verification_report event per run,
   // anchored to the repo HEAD so the server can aggregate "N machines
   // confirm memory X PASSes at sha Y".
   let head: string | null = null;
   try {
-    head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
+    head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
   } catch {
-    // not a git repo — report without an anchor
+    // not a git repo (or no commits yet) — report without an anchor
   }
   for (const r of results) {
     const ran = r.outcomes.filter((o) => o.result === "PASS" || o.result === "FAIL");

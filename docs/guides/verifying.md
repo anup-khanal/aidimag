@@ -29,6 +29,7 @@ dim verify                 # cheap tier, all memories
 dim verify --deep          # also run tests/exec traces
 dim verify -i 4f3a9c21     # just one memory (prefix ok)
 dim verify --quiet         # only print changes (used by hooks)
+dim verify --trust         # review & approve synced-in evidence commands first
 ```
 
 The exit code is **2** if anything went stale — handy for CI:
@@ -63,6 +64,18 @@ So most of the time you never run `dim verify` by hand — memory re-checks itse
 moves. The hooks are **additive**: if you already have these hooks, aiDimag appends to them
 and never clobbers your logic.
 
+## Evidence trust gate (team sync)
+
+Executable evidence (`STATIC_CHECK`, `TEST_RESULT`, `EXEC_TRACE`) is a shell command — and
+with [team sync](/guides/team-sync), those commands can arrive from other machines. aiDimag
+therefore **never executes evidence you didn't approve locally**:
+
+- Evidence written or approved **on this machine** is trusted automatically.
+- Evidence that **arrived via sync** is *skipped* during verification with the note
+  `untrusted (synced) evidence — inspect & approve with dim verify --trust`.
+- `dim verify --trust` lists each untrusted command alongside its claim and asks for a
+  one-time approval before running anything.
+
 ## What "stale" means for agents
 
 A stale memory isn't deleted — it's **down-ranked in search and clearly labeled**, so agents
@@ -76,5 +89,9 @@ verify flips it back toward verified and its confidence climbs again.
 3. If the claim is genuinely no longer true, **refute** it (`dim refute <id>`) so it's kept
    as negative knowledge, or update it with a new memory.
 
-Next: **[The review queue](/guides/review-queue)**.
+Staleness is also **self-healing**: the moment a memory goes stale, `dim verify` drafts a
+follow-up proposal (source `verify:stale`) into the [review queue](/guides/review-queue)
+that quotes the failed evidence and asks whether the code drifted or the claim is outdated —
+so a stale belief is never a dead end.
 
+Next: **[The review queue](/guides/review-queue)**.

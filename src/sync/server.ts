@@ -30,7 +30,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { timingSafeEqual, randomBytes } from "node:crypto";
+import { timingSafeEqual, randomBytes, createHash } from "node:crypto";
 import { buildDirectProvider } from "../tickets/provider.js";
 
 export interface SyncItem {
@@ -130,19 +130,69 @@ CREATE TABLE IF NOT EXISTS ticket_cache (
   fetched_at TEXT NOT NULL,
   PRIMARY KEY (brain, id)
 );
+-- server-side flags (e.g. one-time credential-hash migration)
+CREATE TABLE IF NOT EXISTS server_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `;
 
 const TICKET_CACHE_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Credentials at rest: api_keys.key, account_tokens.token, and pending
+ * device_codes.token store SHA-256 hashes, never plaintext — a leaked server
+ * DB no longer leaks live credentials. Lookups hash the presented value.
+ * (ticket_configs.credential must stay recoverable to call provider APIs.)
+ */
+function hashCred(s: string): string {
+  return createHash("sha256").update(s).digest("hex");
+}
+
+/** Fixed-window per-IP rate limiter for the unauthenticated auth endpoints. */
+function makeRateLimiter(maxPerWindow: number, windowMs: number) {
+  const hits = new Map<string, { count: number; windowStart: number }>();
+  return (ip: string): boolean => {
+    const now = Date.now();
+    const cur = hits.get(ip);
+    if (!cur || now - cur.windowStart > windowMs) {
+      hits.set(ip, { count: 1, windowStart: now });
+      if (hits.size > 10_000) hits.clear(); // memory bound
+      return true;
+    }
+    cur.count++;
+    return cur.count <= maxPerWindow;
+  };
+}
 
 function safeEqual(a: string, b: string): boolean {
   const ba = Buffer.from(a), bb = Buffer.from(b);
   return ba.length === bb.length && timingSafeEqual(ba, bb);
 }
 
+/** Escape untrusted text before interpolating into the HTML approval page (XSS guard). */
+export function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string)
+  );
+}
+
+/** Cap inbound request bodies to bound memory use (DoS guard on an internet-exposed server). */
+const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MiB
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (d) => (body += d));
+    let size = 0;
+    req.on("data", (d: Buffer) => {
+      size += d.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error("request body too large"));
+        req.destroy();
+        return;
+      }
+      body += d;
+    });
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
@@ -161,10 +211,10 @@ const APPROVE_PAGE = (msg = "", code = "") => `<!doctype html>
 input{width:100%;padding:.5rem;margin:.25rem 0 1rem;font:inherit}button{padding:.5rem 1.5rem;font:inherit}
 .msg{padding:.75rem;border-radius:.5rem;background:#eef;margin-bottom:1rem}</style></head>
 <body><h1>🧠 aidimag</h1><h2>Approve a device login</h2>
-${msg ? `<div class="msg">${msg}</div>` : ""}
+${msg ? `<div class="msg">${escapeHtml(msg)}</div>` : ""}
 <form method="POST" action="/v1/auth/approve">
 <label>Code shown in your terminal</label>
-<input name="user_code" placeholder="XXXX-XXXX" value="${code}" required>
+<input name="user_code" placeholder="XXXX-XXXX" value="${escapeHtml(code)}" required>
 <label>Your credential (admin token or aidimag_sk_… member key)</label>
 <input name="credential" type="password" required>
 <label>Device label (optional)</label>
@@ -181,6 +231,24 @@ export function startSyncServer(opts: {
   mkdirSync(path.dirname(path.resolve(opts.dbPath)), { recursive: true });
   const db = new Database(opts.dbPath);
   db.exec(SERVER_SCHEMA);
+
+  // One-time migration: hash any plaintext credentials from pre-hardening DBs.
+  const migrated = db.prepare("SELECT value FROM server_meta WHERE key = 'creds_hashed'").get();
+  if (!migrated) {
+    const tx = db.transaction(() => {
+      const isHex64 = (s: string) => /^[0-9a-f]{64}$/.test(s);
+      for (const r of db.prepare("SELECT key FROM api_keys").all() as Array<{ key: string }>) {
+        if (!isHex64(r.key)) db.prepare("UPDATE api_keys SET key = ? WHERE key = ?").run(hashCred(r.key), r.key);
+      }
+      for (const r of db.prepare("SELECT token FROM account_tokens").all() as Array<{ token: string }>) {
+        if (!isHex64(r.token)) db.prepare("UPDATE account_tokens SET token = ? WHERE token = ?").run(hashCred(r.token), r.token);
+      }
+      db.prepare("INSERT INTO server_meta (key, value) VALUES ('creds_hashed', ?)").run(new Date().toISOString());
+    });
+    tx();
+  }
+
+  const authLimiter = makeRateLimiter(20, 60_000); // 20 req/min/IP on /v1/auth/*
 
   const insertItem = db.prepare(
     "INSERT INTO items (brain, tbl, id, updated_at, deleted, payload) VALUES (?, ?, ?, ?, ?, ?)"
@@ -201,13 +269,14 @@ export function startSyncServer(opts: {
   /** Resolve the brain scope of a presented credential: '*' admin, brain name, or null (invalid). */
   function credentialScope(presented: string): string | null {
     if (safeEqual(presented, opts.token)) return "*";
+    const hashed = hashCred(presented);
     const key = db
       .prepare("SELECT brain FROM api_keys WHERE key = ? AND revoked_at IS NULL")
-      .get(presented) as { brain: string } | undefined;
+      .get(hashed) as { brain: string } | undefined;
     if (key) return key.brain;
     const at = db
       .prepare("SELECT brain FROM account_tokens WHERE token = ? AND revoked_at IS NULL")
-      .get(presented) as { brain: string | null } | undefined;
+      .get(hashed) as { brain: string | null } | undefined;
     if (at) return at.brain ?? "*";
     return null;
   }
@@ -231,6 +300,13 @@ export function startSyncServer(opts: {
       }
 
       // ---- device auth (no Bearer auth on these endpoints) ------------------
+      // Unauthenticated → rate-limited per IP (user codes are short; without a
+      // limit they'd be brute-forceable within the 15-minute TTL).
+      if (url.pathname.startsWith("/v1/auth/")) {
+        const ip = req.socket.remoteAddress ?? "unknown";
+        if (!authLimiter(ip)) return respond(429, { error: "rate limited — try again in a minute" });
+      }
+
       if (req.method === "POST" && url.pathname === "/v1/auth/device") {
         const deviceCode = `aidimag_dc_${randomBytes(24).toString("base64url")}`;
         const code = userCode();
@@ -268,8 +344,10 @@ export function startSyncServer(opts: {
         if (scope === null) return respondHtml(403, APPROVE_PAGE("❌ Invalid credential.", code));
         const token = `aidimag_at_${randomBytes(24).toString("base64url")}`;
         const tx = db.transaction(() => {
+          // account_tokens stores the HASH; the plaintext lives only in
+          // device_codes for the single-use poll handoff, then is deleted.
           db.prepare("INSERT INTO account_tokens (token, brain, label, created_at) VALUES (?, ?, ?, ?)").run(
-            token,
+            hashCred(token),
             scope === "*" ? null : scope,
             label,
             new Date().toISOString()
@@ -283,7 +361,7 @@ export function startSyncServer(opts: {
         return respondHtml(
           200,
           `<!doctype html><html><body style="font:16px system-ui;max-width:28rem;margin:4rem auto">
-           <h1>✅ Device approved</h1><p>Scope: <b>${scope === "*" ? "all brains" : scope}</b>.
+           <h1>✅ Device approved</h1><p>Scope: <b>${escapeHtml(scope === "*" ? "all brains" : scope)}</b>.
            Return to your terminal — <code>dim login</code> finishes automatically.</p></body></html>`
         );
       }
@@ -305,7 +383,7 @@ export function startSyncServer(opts: {
         if (row.status !== "APPROVED" || !row.token) return respond(428, { error: "authorization_pending" });
         const scope = db
           .prepare("SELECT brain FROM account_tokens WHERE token = ?")
-          .get(row.token) as { brain: string | null } | undefined;
+          .get(hashCred(row.token)) as { brain: string | null } | undefined;
         // device codes are single-use: scrub after handoff
         db.prepare("DELETE FROM device_codes WHERE device_code = ?").run(deviceCode);
         return respond(200, { token: row.token, brain: scope?.brain ?? null });
@@ -326,8 +404,9 @@ export function startSyncServer(opts: {
             const { brain: keyBrain, label } = JSON.parse(body || "{}") as { brain?: string; label?: string };
             if (!keyBrain) return respond(400, { error: "missing brain" });
             const key = `aidimag_sk_${randomBytes(24).toString("base64url")}`;
+            // stored hashed — shown in full exactly once, right here
             db.prepare("INSERT INTO api_keys (key, brain, label, created_at) VALUES (?, ?, ?, ?)").run(
-              key,
+              hashCred(key),
               keyBrain,
               label ?? null,
               new Date().toISOString()
@@ -341,22 +420,27 @@ export function startSyncServer(opts: {
           const keys = db
             .prepare("SELECT key, brain, label, created_at, revoked_at FROM api_keys ORDER BY created_at")
             .all() as Array<{ key: string }>;
-          // redact key bodies in listings
+          // keys are stored hashed; show a short fingerprint for identification
           return respond(200, {
-            keys: keys.map((k) => ({ ...k, key: `${k.key.slice(0, 14)}…${k.key.slice(-4)}` })),
+            keys: keys.map((k) => ({ ...k, key: `sha256:${k.key.slice(0, 12)}…` })),
           });
         }
         if (req.method === "DELETE") {
           const target = url.searchParams.get("key");
           if (!target) return respond(400, { error: "missing ?key=" });
-          // revoke in whichever table holds it (member key or account token)
-          const r1 = db
-            .prepare("UPDATE api_keys SET revoked_at = ? WHERE key = ? AND revoked_at IS NULL")
-            .run(new Date().toISOString(), target);
-          const r2 = db
-            .prepare("UPDATE account_tokens SET revoked_at = ? WHERE token = ? AND revoked_at IS NULL")
-            .run(new Date().toISOString(), target);
-          return respond(200, { revoked: r1.changes + r2.changes > 0 });
+          // the admin pastes the plaintext credential; match on its hash
+          // (a raw stored hash also works, for revoking from a leaked-DB audit)
+          const hashes = [hashCred(target), target];
+          let changes = 0;
+          for (const h of hashes) {
+            changes += db
+              .prepare("UPDATE api_keys SET revoked_at = ? WHERE key = ? AND revoked_at IS NULL")
+              .run(new Date().toISOString(), h).changes;
+            changes += db
+              .prepare("UPDATE account_tokens SET revoked_at = ? WHERE token = ? AND revoked_at IS NULL")
+              .run(new Date().toISOString(), h).changes;
+          }
+          return respond(200, { revoked: changes > 0 });
         }
         return respond(405, { error: "method not allowed" });
       }
@@ -533,7 +617,9 @@ export function startSyncServer(opts: {
 
       respond(404, { error: "not found" });
     } catch (err) {
-      respond(400, { error: err instanceof Error ? err.message : String(err) });
+      // never echo internals to clients (info-leak guard); log server-side
+      console.error(`[aidimag serve] ${req.method} ${req.url}:`, err instanceof Error ? err.message : err);
+      respond(400, { error: "bad request" });
     }
   });
 

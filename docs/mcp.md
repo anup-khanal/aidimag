@@ -49,11 +49,12 @@ tool doesn't speak MCP, use [generated context files](/guides/generate-context) 
 
 | Tool | What it does |
 |---|---|
-| `memory_search` | Search verified memory before exploring the codebase |
+| `memory_search` | Search verified memory before exploring the codebase (every search is logged locally; zero-hit queries surface as knowledge gaps via `dim gaps`) |
 | `memory_get_for_files` | Get memories relevant to specific files before editing them |
 | `memory_write` | Save a new memory (set `guardrail_level` for guardrails) |
 | `memory_propose` | Queue a memory for human review (preferred at session end) |
-| `memory_verify` | Re-run cheap evidence and update statuses |
+| `context_note` | **Passive in-chat capture** — the moment you state a durable fact in chat ("we use X because Y", "never touch Z"), the agent notes it into the review queue with your verbatim quote and `HUMAN_ATTESTED` evidence. No session-end ritual needed. |
+| `memory_verify` | Re-run cheap evidence and update statuses. Evidence commands that arrived via team sync and weren't approved on this machine are **skipped, never executed** — the human approves them once with `dim verify --trust` |
 | `memory_refute` | Mark a memory false when it no longer holds |
 | `memory_status` | Counts by status and kind |
 | `memory_critique` | Review work against verified memory + guardrails (a "second critic") |
@@ -82,7 +83,8 @@ tool doesn't speak MCP, use [generated context files](/guides/generate-context) 
 1. **Start** → run `session_start` (or read `aidimag://session-briefing`) to learn the rules
    and stale spots.
 2. **Before editing files** → `memory_get_for_files` to pull conventions/gotchas/guardrails.
-3. **While working** → `memory_search` whenever a question comes up.
+3. **While working** → `memory_search` whenever a question comes up, and `context_note`
+   the moment the human states a durable fact in chat.
 4. **Before finishing** → `memory_critique` with a short summary to catch guardrail
    violations and contradictions.
 5. **End** → run `session_end_extraction` and `memory_propose` durable learnings (which you

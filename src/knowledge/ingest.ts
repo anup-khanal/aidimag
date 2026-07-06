@@ -5,6 +5,7 @@
  * summarized into typed claims → queued as proposals (source `knowledge:<doc>`,
  * pin-on-approve) → a plain-text summary is written and the original is backed up
  * to .aidimag/knowledge/processed/ before the inbox copy is removed.
+ * PDF and DOCX files have their text extracted (pdf-parse / mammoth) first.
  *
  * Trust gate: claims become PINNED memories only after `dim review` (unless the
  * repo opts out with knowledge.requireReview = false). Nothing is ever deleted —
@@ -103,10 +104,39 @@ function isBinary(buf: Buffer): boolean {
   }
 }
 
-export function classifyInbox(
+// ── binary document extraction (.pdf / .docx → plain text) ────────────────────
+const BINARY_DOC_EXTS = new Set([".pdf", ".docx"]);
+
+/**
+ * Extract plain text from a binary document. Parsers are imported lazily so
+ * repos that never ingest PDFs/DOCX pay no startup cost.
+ */
+async function extractBinaryDocText(buf: Buffer, ext: string): Promise<string> {
+  if (ext === ".pdf") {
+    // NOTE: import the lib entry directly — pdf-parse's index.js runs debug
+    // code (reads a test fixture) when loaded outside a CJS parent module.
+    const mod = await import("pdf-parse/lib/pdf-parse.js");
+    const pdfParse = (mod as { default: (data: Buffer) => Promise<{ text?: string }> }).default;
+    const parsed = await pdfParse(buf);
+    return String(parsed.text ?? "");
+  }
+  if (ext === ".docx") {
+    const mammoth = await import("mammoth");
+    const res = await mammoth.extractRawText({ buffer: buf });
+    return res.value ?? "";
+  }
+  throw new Error(`no text extractor for ${ext}`);
+}
+
+/** Collapse extractor artifacts: >2 blank lines, trailing spaces. */
+function tidyExtractedText(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+export async function classifyInbox(
   root: string,
   cfg: ResolvedKnowledgeConfig
-): { pending: PendingDoc[]; toSkip: SkipCandidate[] } {
+): Promise<{ pending: PendingDoc[]; toSkip: SkipCandidate[] }> {
   const dir = inboxDir(root, cfg);
   const pending: PendingDoc[] = [];
   const toSkip: SkipCandidate[] = [];
@@ -127,14 +157,31 @@ export function classifyInbox(
       continue;
     }
     const buf = readFileSync(abs);
-    if (isBinary(buf)) {
-      toSkip.push({ file: entry.name, reason: "not text-decodable (looks binary)" });
-      continue;
-    }
-    const content = buf.toString("utf8");
-    if (!content.trim()) {
-      toSkip.push({ file: entry.name, reason: "no content" });
-      continue;
+
+    let content: string;
+    if (BINARY_DOC_EXTS.has(ext)) {
+      // PDF/DOCX: extract text before summarization; extraction failures are
+      // skipped (never deleted) with the parser error as the reason.
+      try {
+        content = tidyExtractedText(await extractBinaryDocText(buf, ext));
+      } catch (e) {
+        toSkip.push({ file: entry.name, reason: `text extraction failed (${e instanceof Error ? e.message : String(e)})` });
+        continue;
+      }
+      if (!content) {
+        toSkip.push({ file: entry.name, reason: "no extractable text (scanned/image-only document?)" });
+        continue;
+      }
+    } else {
+      if (isBinary(buf)) {
+        toSkip.push({ file: entry.name, reason: "not text-decodable (looks binary)" });
+        continue;
+      }
+      content = buf.toString("utf8");
+      if (!content.trim()) {
+        toSkip.push({ file: entry.name, reason: "no content" });
+        continue;
+      }
     }
     pending.push({
       file: entry.name,
@@ -208,12 +255,15 @@ export function finalizeDoc(
     if (p) proposalIds.push(p.id);
   }
 
-  // Optional auto-approve (opt-out of the review gate) → pinned memories.
+  // Optional auto-approve (opt-out of the review gate). SAFETY: unlike
+  // human-reviewed approvals, auto-approved claims are NOT pinned — a machine
+  // wrote them and no human looked, so they must stay subject to decay and
+  // evidence checks rather than leading the generated context forever.
   const memoryIds: string[] = [];
   const pinned = cfg.requireReview === false;
   if (pinned) {
     for (const id of proposalIds) {
-      try { memoryIds.push(store.approveProposal(id).id); } catch { /* ignore */ }
+      try { memoryIds.push(store.approveProposal(id, { pinned: false }).id); } catch { /* ignore */ }
     }
   }
 
@@ -243,7 +293,7 @@ function renderSummary(file: string, hash: string, via: string, claims: Extracte
   lines.push(`> source: ${file} · sha256: ${hash} · summarized by: ${via} · ${new Date().toISOString()}`);
   lines.push(
     pinned
-      ? `> ${claims.length} claim(s) auto-approved as PINNED memories.`
+      ? `> ⚠️ ${claims.length} claim(s) auto-approved (knowledge.requireReview:false) as ACTIVE but UNPINNED memories — no human reviewed them, so they stay subject to decay. Pin the keepers with \`dim pin\`.`
       : `> ${claims.length} claim(s) queued as proposals — review with \`dim review\`.`
   );
   lines.push("");
@@ -266,7 +316,7 @@ export async function ingestAll(
   root: string,
   cfg: ResolvedKnowledgeConfig
 ): Promise<IngestReport> {
-  const { pending, toSkip } = classifyInbox(root, cfg);
+  const { pending, toSkip } = await classifyInbox(root, cfg);
 
   // move unsupported files aside (never deleted)
   for (const s of toSkip) moveToSkipped(root, cfg, s.file, s.reason);
@@ -310,8 +360,8 @@ export interface KnowledgeStatus {
   skippedOnDisk: string[];        // already in skipped/
   processed: ManifestEntry[];
 }
-export function knowledgeStatus(root: string, cfg: ResolvedKnowledgeConfig): KnowledgeStatus {
-  const { pending, toSkip } = classifyInbox(root, cfg);
+export async function knowledgeStatus(root: string, cfg: ResolvedKnowledgeConfig): Promise<KnowledgeStatus> {
+  const { pending, toSkip } = await classifyInbox(root, cfg);
   const skippedOnDisk = existsSync(skippedDir(root))
     ? readdirSync(skippedDir(root)).filter((f) => !f.endsWith(".reason.txt"))
     : [];

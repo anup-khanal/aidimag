@@ -66,16 +66,19 @@ Either way the output is identical: typed, scoped, falsifiable claims queued for
 
 - **You still approve.** You vouch the *document* is relevant; a machine writes the *claims*,
   so extracted claims go through the [review queue](/guides/review-queue) before becoming
-  pinned. A `knowledge.requireReview: false` opt-out exists for power users who accept the
-  risk (claims are then auto-pinned).
+  pinned. A `knowledge.requireReview: false` opt-out exists for power users — claims are
+  then auto-approved but **not pinned**: no human looked at them, so they stay subject to
+  decay and evidence checks. Pinning always requires a human (`dim pin`).
 - **Originals are never deleted** — they're backed up to `.aidimag/knowledge/processed/`
   before the inbox copy is removed.
 - **A readable summary is kept** at `.aidimag/knowledge/<doc>.summary.md` so you can see what
   was understood (it records the source filename + content hash).
 - **Large text documents are chunked** into multiple scoped, deduplicated memories.
-- **Unsupported files** (binaries, oversized, empty) are set aside in
+- **PDF and DOCX are supported** — their text is extracted (locally, via `pdf-parse` /
+  `mammoth`) before summarization. Scanned/image-only PDFs with no extractable text are
+  set aside in `skipped/` with a reason, like any other unsupported file.
+- **Unsupported files** (other binaries, oversized, empty) are set aside in
   `.aidimag/knowledge/skipped/` with a `<file>.reason.txt` — never processed, never deleted.
-  PDF/DOCX support is a fast-follow.
 - **Idempotent** — a doc's content hash is recorded, so re-dropping an unchanged file is a
   no-op (it's retired without re-proposing).
 

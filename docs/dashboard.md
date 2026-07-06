@@ -10,11 +10,13 @@ dim ui
 ```
 
 This starts a small local server (default port **4517**) and opens your browser. Stop it with
-`Ctrl+C`.
+`Ctrl+C` or `dim ui stop`.
 
 ```sh
 dim ui -p 5000      # custom port
 dim ui --no-open    # start the server without opening a browser
+dim ui stop         # stop the server
+dim ui stop -p 5000 # stop server on custom port
 ```
 
 ## What's inside

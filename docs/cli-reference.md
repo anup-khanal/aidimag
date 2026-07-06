@@ -18,6 +18,27 @@ creates the `knowledge/` inbox, installs git hooks, and prints an MCP config sni
 dim init
 ```
 
+### `dim bootstrap`
+
+Give a fresh repo an **instant starter brain**. Surveys the repo — README, docs, ADRs,
+manifests (`package.json`, `Dockerfile`, CI workflows…), any existing `CLAUDE.md` /
+`.cursorrules`, the directory shape, and the most-churned files in git history — and
+LLM-extracts an initial set of falsifiable claims, each with a suggested `STATIC_CHECK`
+where an honest one exists. Everything is queued for `dim review`; nothing becomes
+active memory without you.
+
+| Option | Meaning |
+|---|---|
+| `--force` | Re-run even if this repo was already bootstrapped (dedupe absorbs repeats) |
+
+```sh
+dim bootstrap        # right after dim init
+dim review           # approve your starter brain
+dim verify           # put the suggested checks to the test
+```
+
+Requires an LLM provider (local Ollama or `OPENAI_API_KEY`; see `AIDIMAG_LLM`).
+
 ### `dim remember <claim>`
 
 Store a memory directly (you are the author, so it's saved without review).
@@ -76,6 +97,26 @@ Show recent memories.
 dim log -n 20
 ```
 
+### `dim gaps`
+
+Show **knowledge gaps**: recent searches (from AI agents via MCP, or you via `dim recall`)
+that returned *nothing*. Each one is a question your repo's brain couldn't answer — fill
+the important ones with `dim remember`.
+
+| Option | Meaning |
+|---|---|
+| `-d, --days <n>` | Look-back window in days (default 30) |
+| `-n, --limit <n>` | Max entries (default 20) |
+| `--clear` | Clear the search log after showing |
+
+```sh
+dim gaps
+dim gaps -d 7 --clear
+```
+
+The top gaps also appear in the [session briefing](/guides/session-briefing), so agents
+proactively ask you about them.
+
 ### `dim refute <id>`
 
 Mark a memory **refuted** (false). Unlike `forget`, it's kept as negative knowledge.
@@ -113,14 +154,27 @@ Re-run evidence and update statuses.
 |---|---|
 | `-i, --id <ids...>` | Only verify specific memory ids (prefix ok) |
 | `-d, --deep` | Also run expensive evidence (tests, exec traces) |
+| `--trust` | Review evidence commands that arrived via **team sync** and approve them to run on this machine |
 | `-q, --quiet` | Only print changes (used by git hooks) |
 
 Exits with code `2` if anything went stale (useful in scripts/CI).
+
+**Evidence trust gate**: executable evidence (`STATIC_CHECK` / `TEST_RESULT` /
+`EXEC_TRACE`) runs shell commands — including automatically on every `git pull` via
+hooks. Commands you author locally (or approve via `dim review`) are trusted; commands
+that arrive via team sync are **skipped until you inspect and approve them** with
+`dim verify --trust`. A teammate's (or attacker's) memory can never become code
+execution on your machine without your sign-off.
+
+**Staleness triggers capture**: when a memory newly flips to STALE, a recovery proposal
+is drafted in the review queue — decide whether the code drifted (fix + re-verify) or
+the claim is outdated (update/refute).
 
 ```sh
 dim verify
 dim verify --deep
 dim verify -i 4f3a9c21
+dim verify --trust     # after a sync brought in new evidence commands
 ```
 
 ### `dim reindex`
@@ -141,23 +195,62 @@ Mine git history for memory candidates (queued as proposals, never auto-saved).
 | Option | Meaning |
 |---|---|
 | `--full` | Rescan the entire history instead of just new commits |
+| `--llm` | **Deep mining**: the LLM reads each commit's message *and diff* and synthesizes falsifiable claims + suggested checks (needs Ollama/`OPENAI_API_KEY`; slower, much higher quality than the keyword heuristics) |
 | `--quiet` | Minimal output (used by the post-commit hook) |
 
 ```sh
 dim mine
 dim mine --full
+dim mine --llm --full   # highest-quality pass over the whole history
 ```
+
+### `dim harvest`
+
+Harvest durable facts **you typed into AI chats** into the review queue. Reads the local
+Claude Code session transcripts for this repo (`~/.claude/projects/<repo-slug>/*.jsonl`),
+extracts falsifiable claims from *your* messages with the configured LLM
+(OpenAI/Ollama — same auto-detection as knowledge ingestion), and queues them as proposals
+(source `harvest:claude-code`) with `HUMAN_ATTESTED` evidence.
+
+**Privacy:** local-only and opt-in by invocation. Secret-looking lines (API keys, tokens,
+passwords) are redacted *before* anything reaches the LLM. Nothing becomes active memory
+without `dim review`.
+
+| Option | Meaning |
+|---|---|
+| `--all` | Rescan every session (ignore the cursor; dedupe absorbs repeats) |
+| `--install-hook` | Add a Claude Code `SessionEnd` hook (`.claude/settings.json`) so every session is harvested automatically when it closes |
+| `-q, --quiet` | Only speak up when proposals are queued (hook mode) |
+
+```sh
+dim harvest                  # scan sessions since the last run
+dim harvest --all            # rescan everything
+dim harvest --install-hook   # automate it per-session
+```
+
+Cursor/Copilot chat harvesting is planned; for those tools the `context_note`
+[MCP tool](/mcp) captures user-stated facts live instead.
 
 ### `dim review [action] [id]`
 
 Review the proposal queue. With no action in a terminal, it opens a conversational
 walkthrough (keep / reword / drop / skip). Scriptable actions: `list`, `approve`, `reject`.
 
+The queue is **auto-triaged**: every proposal gets a 0–1 score from local signals —
+machine-checkable evidence, source trust (user-stated > curated docs > miners), concrete
+scope — and is *penalized* for similarity to claims you previously rejected (what you
+drop teaches the queue) or to existing memory. The walkthrough and `list` show the best
+candidates first, with the score and its reasons.
+
+| Option | Meaning |
+|---|---|
+| `--min-score <s>` | With `approve all`: only approve proposals triaged at or above this score |
+
 ```sh
-dim review                  # interactive walkthrough
+dim review                             # interactive walkthrough, best-first
 dim review list
 dim review approve 1caf9d77
-dim review approve all
+dim review approve all --min-score 0.7 # batch-approve the confident ones
 dim review reject all
 ```
 
@@ -165,6 +258,8 @@ dim review reject all
 
 Manage the [knowledge inbox](/guides/knowledgebase): summarize project docs dropped into the
 `knowledge/` folder into reviewed, pinned-on-approve memory proposals. `sync` is the default.
+Text formats plus **PDF and DOCX** are supported (text is extracted locally before
+summarization).
 
 | Subcommand | What it does |
 |---|---|
@@ -250,18 +345,25 @@ dim branch XXX-2100 -p feature
 
 ## Team sync & cloud
 
-### `dim ui`
+### `dim ui [action]`
 
-Open the local web dashboard (memory browser, review queue, verify, graph).
+Manage the local web dashboard (memory browser, review queue, verify, graph).
+
+| Argument | Meaning |
+|---|---|
+| `action` | `start` (default) or `stop` |
 
 | Option | Meaning |
 |---|---|
 | `-p, --port <n>` | Port (default 4517) |
-| `--no-open` | Don't open the browser automatically |
+| `--no-open` | Don't open the browser automatically (start only) |
 
 ```sh
-dim ui
-dim ui -p 5000
+dim ui              # start the dashboard
+dim ui start        # explicit start
+dim ui -p 5000      # start on custom port
+dim ui stop         # stop the server
+dim ui stop -p 5000 # stop server on custom port
 ```
 
 ### `dim serve`

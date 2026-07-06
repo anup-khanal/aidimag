@@ -80,9 +80,9 @@ work out of the box.
 |---|---|---|
 | `folder` | `"knowledge"` | Inbox folder (repo-relative) where you drop docs |
 | `summarizer` | `"auto"` | `auto` (agent → LLM) / `agent` / `llm` / `off` |
-| `requireReview` | `true` | Require `dim review` approval before pinning. `false` auto-pins (opt-out of the gate) |
+| `requireReview` | `true` | Require `dim review` approval before pinning. `false` auto-approves claims as ACTIVE but **unpinned** memories (no human reviewed them, so they stay subject to decay and evidence checks — pin keepers with `dim pin`) |
 | `backup` | `true` | Keep originals in `.aidimag/knowledge/processed/` |
-| `extensions` | text formats | Allowlist of file extensions to summarize (e.g. `[".md", ".txt", ".rst"]`) |
+| `extensions` | text formats + `.pdf`/`.docx` | Allowlist of file extensions to summarize (e.g. `[".md", ".txt", ".pdf"]`). PDF and DOCX text is extracted before summarization |
 | `maxBytes` | `1048576` | Hard size cap; larger files are skipped |
 | `chunkBytes` | `16384` | Soft threshold; larger text docs are chunked before summarizing |
 

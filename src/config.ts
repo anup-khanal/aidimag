@@ -50,6 +50,7 @@ export interface AidimagConfig {
 export const DEFAULT_KNOWLEDGE_EXTENSIONS = [
   ".md", ".markdown", ".txt", ".rst", ".adoc", ".org",
   ".json", ".yaml", ".yml", ".toml", ".csv", ".html",
+  ".pdf", ".docx", // binary docs — text is extracted before summarization
 ];
 
 export interface ResolvedKnowledgeConfig {

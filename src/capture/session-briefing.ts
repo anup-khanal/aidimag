@@ -23,6 +23,8 @@ export interface SessionBriefing {
   staleWarnings: MemoryEntry[];
   guardrailsInScope: Array<{ memory: MemoryEntry; level: GuardrailLevel }>;
   coverageGaps: string[];
+  /** recent searches (agent or human) that found NOTHING — questions memory couldn't answer */
+  unansweredSearches: Array<{ query: string; misses: number }>;
   suggestedQuestions: string[];
 }
 
@@ -77,6 +79,14 @@ export function buildSessionBriefing(store: MemoryStore, root: string): SessionB
   for (const m of scoped) for (const sp of m.scope.paths) for (const f of changedFiles) if (f.startsWith(sp) || sp.startsWith(f)) covered.add(f);
   const coverageGaps = changedFiles.filter((f) => !covered.has(f));
 
+  // knowledge gaps: recent zero-hit searches (see store.searchGaps / `dim gaps`)
+  let unansweredSearches: Array<{ query: string; misses: number }> = [];
+  try {
+    unansweredSearches = store.searchGaps({ sinceDays: 14, limit: 5 }).map((g) => ({ query: g.query, misses: g.misses }));
+  } catch {
+    /* pre-migration DB — gaps are advisory */
+  }
+
   const suggestedQuestions: string[] = [];
   for (const s of staleWarnings.slice(0, 2)) {
     suggestedQuestions.push(`A ${s.kind} for ${s.scope.paths.join(", ") || "the repo"} is STALE — has it changed? ("${s.claim.slice(0, 80)}")`);
@@ -84,11 +94,16 @@ export function buildSessionBriefing(store: MemoryStore, root: string): SessionB
   for (const f of coverageGaps.slice(0, 2)) {
     suggestedQuestions.push(`No memory covers ${f} — want me to explore it before changing it?`);
   }
+  if (unansweredSearches.length) {
+    suggestedQuestions.push(
+      `Past sessions searched for "${unansweredSearches[0].query}" and found nothing — do you know the answer? (I'll save it with context_note.)`
+    );
+  }
   if (guardrailsInScope.some((g) => g.level === "ask-first")) {
     suggestedQuestions.push("An ASK-FIRST guardrail applies to these files — confirm the intended scope before I proceed.");
   }
 
-  return { branch, ticket, changedFiles, relevantMemories, staleWarnings, guardrailsInScope, coverageGaps, suggestedQuestions };
+  return { branch, ticket, changedFiles, relevantMemories, staleWarnings, guardrailsInScope, coverageGaps, unansweredSearches, suggestedQuestions };
 }
 
 const GUARDRAIL_ICON: Record<GuardrailLevel, string> = { never: "🚫", always: "✅", "ask-first": "🤚" };
@@ -118,6 +133,12 @@ export function renderBriefing(b: SessionBriefing): string {
   if (b.coverageGaps.length) {
     lines.push("## No memory coverage");
     for (const f of b.coverageGaps.slice(0, 10)) lines.push(`- ${f}`);
+    lines.push("");
+  }
+  if (b.unansweredSearches.length) {
+    lines.push("## Unanswered questions (searches that found nothing)");
+    for (const g of b.unansweredSearches) lines.push(`- "${g.query}"${g.misses > 1 ? ` (asked ${g.misses}×)` : ""}`);
+    lines.push("If this session answers one of these, persist it (context_note / memory_propose).");
     lines.push("");
   }
   if (b.suggestedQuestions.length) {

@@ -212,6 +212,20 @@ CREATE INDEX IF NOT EXISTS idx_memories_kind   ON memories(kind);
 CREATE INDEX IF NOT EXISTS idx_scopes_value    ON memory_scopes(value);
 CREATE INDEX IF NOT EXISTS idx_evidence_memory ON evidence(memory_id);
 
+-- Passive capture: every MCP memory_search is logged locally. Zero-hit
+-- queries are coverage gaps — things agents needed but memory couldn't answer.
+-- Surfaced via \`dim gaps\` and the session briefing; never synced.
+CREATE TABLE IF NOT EXISTS search_log (
+  id           TEXT PRIMARY KEY,
+  query        TEXT NOT NULL,
+  paths        TEXT NOT NULL DEFAULT '[]',   -- JSON string[] (scope filter, if any)
+  result_count INTEGER NOT NULL,
+  source       TEXT NOT NULL DEFAULT 'mcp',  -- 'mcp' | 'cli'
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_search_log_created ON search_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_search_log_hits ON search_log(result_count, created_at);
+
 -- SaaS groundwork: local append-only event log (CLOUD_DESIGN sync model).
 -- Every memory-lifecycle change is recorded here and shipped to the sync
 -- server on \`dim sync\`; the server aggregates evidence_result events from

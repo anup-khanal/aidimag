@@ -6,13 +6,38 @@ approval. This is the human gate that lets you trust what's in the store.
 
 ## Where proposals come from
 
+- **Repo bootstrap** — `dim bootstrap` surveys a fresh repo (docs, manifests, structure,
+  git churn) and queues an instant starter brain.
 - **Commit miner** — after each commit (or via `dim mine`), candidate memories are extracted
-  from your diffs and messages.
+  from your diffs and messages (`dim mine --llm` for the diff-aware deep tier).
 - **Agent session-end** — an agent calls `memory_propose` with durable learnings.
+- **In-chat context notes** — when you state a durable fact in an AI chat ("we use X because
+  Y", "never touch Z"), the agent captures it live with the `context_note` MCP tool — your
+  verbatim quote is kept for the review.
+- **Chat transcript harvesting** — `dim harvest` mines your local Claude Code session
+  transcripts for facts you typed (secrets redacted, local-only). See the
+  [CLI reference](/cli-reference#dim-harvest).
 - **Knowledgebase ingestion** — summarized documents become proposals too (pinned on
   approval). See [Knowledgebase](/guides/knowledgebase).
+- **Stale-memory follow-ups** — when `dim verify` flips a memory to STALE, a recovery
+  proposal is drafted so you decide: code drift, or outdated belief?
 
 Things **you** write with `dim remember` skip the queue — you're the author.
+
+## Triage: the queue sorts itself
+
+With this many sources, the queue would become homework without triage. Every pending
+proposal is scored 0–1 from local signals:
+
+- **+** machine-checkable evidence attached (falsifiable on arrival)
+- **+** trusted source — user-stated (`context_note`/harvest) > curated docs > miners
+- **+** concretely scoped (paths/symbols)
+- **−** similar to a claim you previously **rejected** — the correction loop: every
+  drop teaches the queue what not to surface first
+- **−** similar to existing active memory (probably a duplicate)
+
+The walkthrough and `dim review list` show the best candidates first with the score and
+its reasons, and `dim review approve all --min-score 0.7` batch-approves above a bar.
 
 ## Review interactively
 

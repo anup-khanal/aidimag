@@ -245,3 +245,100 @@ export function mineCommits(
   return { scanned: commits.length, proposed, skippedDuplicates, lastSha: head ?? null };
 }
 
+// ---------------------------------------------------------------- LLM mining (deep tier)
+
+const LLM_DIFF_CHARS = 6_000;
+const LLM_MAX_COMMITS = 40; // per run — LLM mining is the deep tier
+
+export const COMMIT_EXTRACT_INSTRUCTIONS = `You are mining a git commit for durable, project-specific knowledge worth remembering across AI coding sessions: decisions (and rejected alternatives), conventions, gotchas, failed approaches, invariants, architecture facts.
+
+Rules:
+1. Most commits contain NOTHING durable — routine features/fixes/refactors. Return zero claims for those. Do NOT invent.
+2. When there IS signal, SYNTHESIZE a falsifiable claim about the codebase — do not parrot the commit message. Bad: "A decision was made: use Redis". Good: "Rate limiting uses Redis (src/limits); the in-memory limiter was abandoned because multi-instance deploys need shared counters".
+3. Use the DIFF, not just the message — renamed modules, deleted approaches, and added config tell the real story.
+4. kinds: DECISION, CONVENTION, GOTCHA, FAILED_APPROACH, ARCHITECTURE, INVARIANT, GUARDRAIL (guardrail_level never|ask-first|always), SKILL, TODO_CONTEXT.
+5. Scope with the touched paths; add "static_check" (cheap shell command, exit 0 iff true) when an honest one exists.
+6. 0–2 claims per commit. Zero is the common case.
+
+Respond with ONLY: {"claims":[{"kind":"DECISION","claim":"...","paths":["src/x"],"symbols":[],"guardrail_level":null,"rationale":"...","static_check":null}]}`;
+
+function commitDiff(repoRoot: string, sha: string): string {
+  try {
+    return git(repoRoot, ["show", sha, "--stat", "--patch", "--format="]).slice(0, LLM_DIFF_CHARS);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * LLM-powered deep mining: reads message + diff, synthesizes claims with
+ * suggested STATIC_CHECKs. Requires a text provider (OpenAI/Ollama); the
+ * caller falls back to regex mining when none is available. Same cursor as
+ * regex mining — the two modes are alternatives over the same history.
+ */
+export async function mineCommitsLlm(
+  store: MemoryStore,
+  repoRoot: string,
+  opts: { maxCommits?: number; full?: boolean } = {}
+): Promise<MineResult & { provider: string | null }> {
+  const { getTextProvider } = await import("../knowledge/llm.js");
+  const { parseClaims } = await import("../knowledge/extract.js");
+  const provider = await getTextProvider();
+  if (!provider) {
+    const r = mineCommits(store, repoRoot, opts);
+    return { ...r, provider: null };
+  }
+
+  const sinceSha = opts.full ? null : store.getMeta(MINER_CURSOR_KEY);
+  const commits = readCommits(repoRoot, sinceSha, Math.min(opts.maxCommits ?? LLM_MAX_COMMITS, LLM_MAX_COMMITS));
+  const ticketPattern = readTicketsConfig(repoRoot).pattern ?? DEFAULT_TICKET_PATTERN;
+
+  const proposed: Proposal[] = [];
+  let skippedDuplicates = 0;
+
+  for (const c of commits) {
+    // Pure merge noise never carries signal — skip the LLM call entirely.
+    if (/^Merge branch /i.test(c.subject) && !c.body.trim()) continue;
+    const user =
+      `Commit ${c.sha.slice(0, 12)}\nSubject: ${c.subject}\nBody:\n${c.body || "(none)"}\n\n` +
+      `Diff (truncated):\n${commitDiff(repoRoot, c.sha)}`;
+    let claims;
+    try {
+      claims = parseClaims(await provider.generate(COMMIT_EXTRACT_INSTRUCTIONS, user));
+    } catch {
+      continue; // provider hiccup on one commit shouldn't kill the run
+    }
+    const ticketRef = extractTicketId(`${c.subject}\n${c.body}`, ticketPattern) ?? undefined;
+    for (const cl of claims.slice(0, 2)) {
+      const evidence: ProposalInput["evidence"] = [{ type: "COMMIT_REF", payload: c.sha }];
+      if (cl.staticCheck) evidence.push({ type: "STATIC_CHECK", payload: cl.staticCheck });
+      if (ticketRef) evidence.push({ type: "TICKET_REF", payload: ticketRef });
+      const p = store.propose({
+        kind: cl.kind,
+        claim: cl.claim,
+        paths: cl.paths ?? scopeFromFiles(c.files),
+        symbols: cl.symbols,
+        guardrailLevel: cl.guardrailLevel,
+        evidence,
+        source: "commit-miner",
+        sourceRef: c.sha,
+        rationale: cl.rationale ?? `LLM-mined from commit ${c.sha.slice(0, 8)}: ${c.subject}`,
+        ticketRef,
+      });
+      if (p) proposed.push(p);
+      else skippedDuplicates++;
+    }
+  }
+
+  const head = commits.length > 0 ? commits[0].sha : sinceSha;
+  if (head) store.setMeta(MINER_CURSOR_KEY, head);
+
+  return {
+    scanned: commits.length,
+    proposed,
+    skippedDuplicates,
+    lastSha: head ?? null,
+    provider: `${provider.name}/${provider.model}`,
+  };
+}
+

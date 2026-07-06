@@ -97,8 +97,14 @@ prints it pre-filled for you):
 ```
 
 ### Step 3 — Feed the brain
-Three ways, use any mix:
+Six ways, use any mix (the last three are passive — they work while you just do your job):
 
+- **Bootstrap an instant brain** — on a fresh repo, one command surveys your README,
+  ADRs, manifests, folder structure, and git churn, and drafts an initial memory set
+  for you to review:
+  ```sh
+  dim bootstrap   # then: dim review
+  ```
 - **You add facts directly** (best with proof attached):
   ```sh
   dim remember "All DB access goes through src/db/store.ts" \
@@ -107,10 +113,20 @@ Three ways, use any mix:
   ```
 - **Mine your git history** for decisions/gotchas hidden in commit messages:
   ```sh
-  dim mine        # then: dim review  →  approve / reject
+  dim mine        # keyword scan; add --llm to have an LLM read the diffs too
   ```
 - **Let your AI propose memories at session end** — ask it to run the
   `session_end_extraction` prompt; its proposals land in your review queue.
+- **Just talk** — when you tell your AI a durable fact mid-chat ("we never touch
+  src/billing", "retries live in the queue layer"), it captures it automatically with the
+  `context_note` tool, quote and all. You approve later with `dim review`.
+- **Harvest your chat history** — `dim harvest` reads your local Claude Code transcripts
+  for this repo and extracts the facts you typed (secrets are redacted first; nothing
+  leaves your machine except to the LLM you configured). `dim harvest --install-hook`
+  makes it run automatically when each session ends.
+
+You can also drop documents (design docs, runbooks — even **PDF and Word files**) into
+the `knowledge/` folder and they're summarized into reviewable memories.
 
 ### Step 4 — Live with it (this part is automatic)
 - Your AI starts each session by recalling relevant memories instead of re-exploring.
@@ -126,11 +142,14 @@ Three ways, use any mix:
 | Command | What it does |
 |---|---|
 | `dim init` | Give a repo a brain |
+| `dim bootstrap` | Instant brain for a fresh repo — surveys docs/structure/history, drafts memories to review |
 | `dim remember "..."` | Store a fact (add `-e TYPE:proof`) |
 | `dim recall <words>` | Search memories (`-p <path>` = "what applies to this file?") |
-| `dim mine` | Harvest memory candidates from git history |
-| `dim review` | Approve/reject proposed memories |
-| `dim verify` | Re-run proofs now (`--deep` = include tests/exec) |
+| `dim mine` | Harvest memory candidates from git history (`--llm` = LLM reads the diffs, much higher quality) |
+| `dim harvest` | Harvest facts you typed into AI chats (local transcripts, secrets redacted) |
+| `dim gaps` | Questions the brain was asked but couldn't answer — your missing memories |
+| `dim review` | Approve/reject proposed memories (best-first, each scored; `approve all --min-score 0.7` for batches) |
+| `dim verify` | Re-run proofs now (`--deep` = include tests/exec; `--trust` = approve synced-in proof commands) |
 | `dim pin <id>` / `dim unpin <id>` | Pin = never decays with age (evidence still applies) |
 | `dim status` / `dim log` | Health check / recent memories |
 | `dim refute <id>` | Mark a memory false (kept as negative knowledge) |
@@ -159,4 +178,3 @@ Three ways, use any mix:
 The one-line pitch: **AI models keep getting smarter, but they still forget your
 project every session. aidimag is the memory they keep — and the only one that
 proves it's still telling the truth.**
-

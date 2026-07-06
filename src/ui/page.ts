@@ -424,7 +424,9 @@ async function keyList() {
   const p = keyParams();
   if (!p.adminToken) { toast("Admin token required"); return; }
   try {
-    const r = await api(\`/api/keys?server=\${encodeURIComponent(p.server)}&adminToken=\${encodeURIComponent(p.adminToken)}\`);
+    const r = await api(\`/api/keys?server=\${encodeURIComponent(p.server)}\`, {
+      headers: { "X-Aidimag-Admin-Token": p.adminToken },
+    });
     document.getElementById("keys-out").innerHTML = r.keys.length
       ? r.keys.map(k => \`<div class="keyrow"><span>\${k.revoked_at ? "✗" : "✓"} \${esc(k.key)} → \${esc(k.brain)}\${k.label ? " (" + esc(k.label) + ")" : ""}</span></div>\`).join("")
       : '<div class="hint">No keys yet.</div>';

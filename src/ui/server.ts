@@ -35,9 +35,19 @@ function json(res: import("node:http").ServerResponse, code: number, body: unkno
 }
 
 function readBody(req: import("node:http").IncomingMessage): Promise<Record<string, unknown>> {
+  const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MiB — bound memory use on POST bodies
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (d) => (body += d));
+    let size = 0;
+    req.on("data", (d: Buffer) => {
+      size += d.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error("request body too large"));
+        req.destroy();
+        return;
+      }
+      body += d;
+    });
     req.on("end", () => {
       try {
         resolve(body ? JSON.parse(body) : {});
@@ -45,6 +55,7 @@ function readBody(req: import("node:http").IncomingMessage): Promise<Record<stri
         reject(err);
       }
     });
+    req.on("error", reject);
   });
 }
 
@@ -305,8 +316,15 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
       if (path === "/api/keys") {
         const b = req.method === "GET" ? {} : await readBody(req);
         const cloud = readCloudConfig(repoRoot);
+        // Admin token is sent in a header (or POST body) — never the query
+        // string — so it can't leak into browser history, proxy/access logs.
+        const headerToken = req.headers["x-aidimag-admin-token"];
         const target = String((b.server as string) ?? url.searchParams.get("server") ?? cloud?.server ?? "");
-        const admin = String((b.adminToken as string) ?? url.searchParams.get("adminToken") ?? "");
+        const admin = String(
+          (b.adminToken as string) ??
+            (Array.isArray(headerToken) ? headerToken[0] : headerToken) ??
+            ""
+        );
         if (!target || !admin) {
           json(res, 400, { error: "server and adminToken are required" });
           return;
