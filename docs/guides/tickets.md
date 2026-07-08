@@ -9,7 +9,7 @@ so that context flows into your memory.
 - **Jira**
 - **GitHub Issues**
 - **Linear**
-- **A custom HTTP provider** (your own middleware — see `HTTP_PROVIDER.md` in the repo)
+- **A custom HTTP provider** (your own middleware — see `design/HTTP_PROVIDER.md` in the repo)
 - **The team sync server** (share one credential with the whole team)
 
 ## Connect
