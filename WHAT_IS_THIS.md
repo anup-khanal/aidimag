@@ -1,7 +1,6 @@
 # What is aidimag? (Plain-English Guide)
 
-> **aidimag** = "AI" + "dimag" (*dimag* means **brain** in Hindi/Nepali).
-> It gives AI coding assistants a **long-term memory of your codebase** — one that
+> **aidimag** gives AI coding assistants a **long-term memory of your codebase** — one that
 > fact-checks itself so it never feeds your AI stale or wrong information.
 
 ---

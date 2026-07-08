@@ -101,7 +101,7 @@ export default defineConfig({
 
     footer: {
       message: "Released under the MIT License.",
-      copyright: "aiDimag — dimag = brain.",
+      copyright: "aiDimag — verified memory for AI coding agents.",
     },
 
     editLink: {

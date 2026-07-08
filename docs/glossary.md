@@ -2,7 +2,7 @@
 
 Quick definitions of the terms used throughout these docs.
 
-**aiDimag** — the project. "dimag" means *brain*. A verified memory system for AI coding
+**aiDimag** — the project. A verified memory system for AI coding
 agents.
 
 **dim** — the command-line tool. `dim` and `aidimag` are the same command.

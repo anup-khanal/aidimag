@@ -1,7 +1,7 @@
 # Codebase Memory Layer — "aidimag"
 ### Persistent, verified memory for AI coding agents
 
-> **CLI**: `dim` (short for *dimag* — brain). npm package: `aidimag`, binary: `dim`.
+> **CLI**: `dim`. npm package: `aidimag`, binary: `dim`.
 >
 > ```
 > dim init      dim remember    dim recall <path>

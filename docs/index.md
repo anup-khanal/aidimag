@@ -4,7 +4,7 @@ layout: home
 hero:
   name: AI Dimag
   text: Verified memory for AI coding agents
-  tagline: Your codebase remembers its decisions, conventions, gotchas, and rules — and proves they're still true. CLI is dim (dimag = brain).
+  tagline: Your codebase remembers its decisions, conventions, gotchas, and rules — and proves they're still true.
   image:
     src: /hero-illustration.svg
     alt: The aiDimag memory loop — remember, verify, flag stale facts, deliver to AI tools

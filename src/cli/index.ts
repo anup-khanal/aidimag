@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * dim — the aidimag CLI (dimag = brain).
+ * dim — the aidimag CLI.
  *
  * Thin entry point: builds the commander program and delegates to the command
  * modules in ./commands/ (one file per domain):

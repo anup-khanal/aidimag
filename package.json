@@ -1,7 +1,7 @@
 {
   "name": "aidimag",
   "version": "0.1.0",
-  "description": "Persistent, verified memory for AI coding agents. CLI: dim (dimag = brain).",
+  "description": "Persistent, verified memory for AI coding agents. CLI: dim.",
   "type": "module",
   "license": "MIT",
   "bin": {

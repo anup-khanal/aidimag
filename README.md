@@ -4,7 +4,7 @@
 
 # aiDimag
 
-> Persistent, verified memory for AI coding agents. CLI: **`dim`** (*dimag* = brain).
+> Persistent, verified memory for AI coding agents. CLI: **`dim`**.
 
 aiDimag gives any MCP-compatible agent (Claude Code, Cursor, Copilot, …) a memory of your
 codebase that survives across sessions — decisions, conventions, gotchas, failed approaches,

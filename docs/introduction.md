@@ -1,6 +1,6 @@
 # What is aiDimag?
 
-**aiDimag** ("dimag" means *brain*) is a memory system for AI coding agents. Its command-line
+**aiDimag** is a memory system for AI coding agents. Its command-line
 tool is called **`dim`**.
 
 ## The problem it solves
