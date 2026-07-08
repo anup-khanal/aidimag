@@ -4,13 +4,30 @@
   "description": "Persistent, verified memory for AI coding agents. CLI: dim.",
   "type": "module",
   "license": "MIT",
+  "author": "Anup Khanal",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-org/aidimag.git"
+  },
+  "homepage": "https://github.com/your-org/aidimag#readme",
+  "bugs": {
+    "url": "https://github.com/your-org/aidimag/issues"
+  },
   "bin": {
     "dim": "./dist/cli/index.js",
     "aidimag": "./dist/cli/index.js"
   },
   "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "files": [
-    "dist"
+    "dist",
+    "!dist/test",
+    "!dist/**/*.map"
   ],
   "engines": {
     "node": ">=18"
@@ -21,6 +38,7 @@
     "mcp": "node dist/mcp/server.js",
     "pretest": "tsc",
     "test": "node --test \"dist/test/**/*.test.js\"",
+    "prepublishOnly": "npm run build && npm test",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"
@@ -32,7 +50,9 @@
     "codebase",
     "claude",
     "cursor",
-    "copilot"
+    "copilot",
+    "knowledge-base",
+    "cli"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
