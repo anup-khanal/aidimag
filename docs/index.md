@@ -16,8 +16,8 @@ hero:
       text: What is aiDimag?
       link: /introduction
     - theme: alt
-      text: CLI reference
-      link: /cli-reference
+      text: Pricing
+      link: /pricing
 
 features:
   - icon: 🧠

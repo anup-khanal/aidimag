@@ -110,5 +110,5 @@ Self-hosted sync deployment (Docker / Fly.io): [deploy/](https://github.com/anup
 
 ## License
 
-[Fair Source License](./LICENSE) - Free for teams of 10 or fewer users. Commercial license required for larger organizations.
+[Elastic License 2.0](./LICENSE) - Free for teams of 10 or fewer users. Commercial license required for larger organizations. Cannot be offered as a managed service to third parties.
 

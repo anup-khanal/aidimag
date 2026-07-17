@@ -41,6 +41,7 @@ export default defineConfig({
       { text: "Getting Started", link: "/getting-started" },
       { text: "CLI Reference", link: "/cli-reference" },
       { text: "Guides", link: "/guides/claims-and-evidence" },
+      { text: "Pricing", link: "/pricing" },
     ],
 
     sidebar: [
@@ -91,21 +92,22 @@ export default defineConfig({
         items: [
           { text: "FAQ & troubleshooting", link: "/faq" },
           { text: "Glossary", link: "/glossary" },
+          { text: "Pricing & licensing", link: "/pricing" },
         ],
       },
     ],
 
-    socialLinks: [{ icon: "github", link: "https://github.com/your-org/aidimag" }],
+    socialLinks: [{ icon: "github", link: "https://github.com/anupkhanal/aidimag" }],
 
     search: { provider: "local" },
 
     footer: {
-      message: "Released under the MIT License.",
-      copyright: "aiDimag — verified memory for AI coding agents.",
+      message: "Licensed under Elastic License 2.0 — free for teams of 10 or fewer users.",
+      copyright: "Copyright © 2025 Anup Khanal",
     },
 
     editLink: {
-      pattern: "https://github.com/your-org/aidimag/edit/main/docs/:path",
+      pattern: "https://github.com/anupkhanal/aidimag/edit/main/docs/:path",
       text: "Edit this page on GitHub",
     },
   },
