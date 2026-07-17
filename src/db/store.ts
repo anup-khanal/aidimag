@@ -9,10 +9,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import path from "node:path";
-import { SCHEMA_SQL, SCHEMA_VERSION, MIGRATIONS, EVIDENCE_REBUILD_V6, MEMORIES_REBUILD_V8, PROPOSALS_REBUILD_V8 } from "./schema.js";
+import { SCHEMA_SQL, SCHEMA_VERSION, MIGRATIONS, EVIDENCE_REBUILD_V6, MEMORIES_REBUILD_V8, PROPOSALS_REBUILD_V8, EVENTS_REBUILD_V9 } from "./schema.js";
 import { debugLog } from "../debug.js";
 import type {
   Evidence,
+  EvidenceType,
   GuardrailLevel,
   MemoryEntry,
   MemoryKind,
@@ -79,7 +80,10 @@ export type MemoryEventType =
   | "proposal_created"
   | "proposal_approved"
   | "proposal_rejected"
-  | "verification_report";
+  | "verification_report"
+  | "updated"
+  | "evidence_added"
+  | "evidence_removed";
 
 export interface MemoryEvent {
   seq: number;
@@ -171,6 +175,11 @@ export class MemoryStore {
       // dropping/recreating the tables removed their triggers and indexes —
       // SCHEMA_SQL recreates them (all CREATE ... IF NOT EXISTS, idempotent).
       this.db.exec(SCHEMA_SQL);
+    }
+    // v9: events CHECK gains updated, evidence_added, evidence_removed types
+    if (prevVersion > 0 && prevVersion < 9) {
+      const tx = this.db.transaction(() => this.db.exec(EVENTS_REBUILD_V9));
+      tx();
     }
     this.db
       .prepare(
@@ -802,6 +811,52 @@ export class MemoryStore {
         "INSERT OR IGNORE INTO memory_links (from_id, to_id, relation) VALUES (?, ?, ?)"
       )
       .run(fromId, toId, relation);
+  }
+
+  update(id: string, updates: { claim?: string; kind?: MemoryKind; guardrailLevel?: GuardrailLevel }): void {
+    const sets: string[] = [];
+    const values: any[] = [];
+    
+    if (updates.claim !== undefined) {
+      sets.push("claim = ?");
+      values.push(updates.claim);
+    }
+    if (updates.kind !== undefined) {
+      sets.push("kind = ?");
+      values.push(updates.kind);
+    }
+    if (updates.guardrailLevel !== undefined) {
+      sets.push("guardrail_level = ?");
+      values.push(updates.guardrailLevel);
+    }
+    
+    if (sets.length === 0) return;
+    
+    sets.push("updated_at = ?");
+    values.push(new Date().toISOString());
+    values.push(id);
+    
+    const sql = `UPDATE memories SET ${sets.join(", ")} WHERE id = ?`;
+    const res = this.db.prepare(sql).run(...values);
+    if (res.changes === 0) throw new Error(`No memory with id ${id}`);
+    this.recordEvent("updated", id, updates);
+  }
+
+  addEvidence(memoryId: string, ev: { type: EvidenceType; payload: string }): string {
+    const id = randomUUID();
+    this.db
+      .prepare("INSERT INTO evidence (id, memory_id, type, payload, result) VALUES (?, ?, ?, ?, 'UNKNOWN')")
+      .run(id, memoryId, ev.type, ev.payload);
+    this.recordEvent("evidence_added", memoryId, { evidenceId: id, type: ev.type });
+    return id;
+  }
+
+  removeEvidence(evidenceId: string): void {
+    const ev = this.db.prepare("SELECT memory_id FROM evidence WHERE id = ?").get(evidenceId) as { memory_id: string } | undefined;
+    if (!ev) throw new Error(`No evidence with id ${evidenceId}`);
+    const res = this.db.prepare("DELETE FROM evidence WHERE id = ?").run(evidenceId);
+    if (res.changes === 0) throw new Error(`No evidence with id ${evidenceId}`);
+    this.recordEvent("evidence_removed", ev.memory_id, { evidenceId });
   }
 
   // ---------------------------------------------------------------- sync (Phase 6)

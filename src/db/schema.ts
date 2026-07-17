@@ -3,7 +3,7 @@
  * FTS5 powers Phase 1 search; sqlite-vec embeddings arrive in Phase 2.
  */
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 /** Idempotent migrations for pre-existing DBs (failures = already applied). */
 export const MIGRATIONS: string[] = [
@@ -101,6 +101,32 @@ INSERT INTO proposals_v8 (id, kind, claim, paths, symbols, evidence, source, sou
          rationale, created_at, status, memory_id, updated_at, ticket_ref, guardrail_level FROM proposals;
 DROP TABLE proposals;
 ALTER TABLE proposals_v8 RENAME TO proposals;
+`;
+
+/**
+ * v9 guarded rebuild: Add new event types (updated, evidence_added, evidence_removed)
+ * to the events table CHECK constraint. SQLite can't ALTER a CHECK constraint.
+ */
+export const EVENTS_REBUILD_V9 = `
+ALTER TABLE events RENAME TO events_v8;
+CREATE TABLE events (
+  seq            INTEGER PRIMARY KEY AUTOINCREMENT,
+  id             TEXT NOT NULL UNIQUE,
+  type           TEXT NOT NULL CHECK (type IN (
+                   'memory_created','status_changed','evidence_result',
+                   'refuted','superseded','forgotten',
+                   'proposal_created','proposal_approved','proposal_rejected',
+                   'verification_report','updated','evidence_added','evidence_removed')),
+  memory_id      TEXT,
+  payload        TEXT NOT NULL DEFAULT '{}',
+  machine        TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  created_at     TEXT NOT NULL,
+  synced         INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO events SELECT * FROM events_v8;
+DROP TABLE events_v8;
+CREATE INDEX IF NOT EXISTS idx_events_synced ON events(synced, seq);
 `;
 
 export const SCHEMA_SQL = `

@@ -158,7 +158,13 @@ export function sessionStartPrompt(b: SessionBriefing): string {
     `1. Treat the guardrails above as binding (never = refuse, ask-first = confirm, always = do).\n` +
     `2. Trust VERIFIED memory; re-verify anything STALE before relying on it (\`memory_verify\`).\n` +
     `3. Ask the user the clarifying questions above instead of guessing — extract the true goal first.\n` +
-    `4. Use \`memory_search\` / \`memory_get_for_files\` as you go, and \`memory_critique\` before you finish.`
+    `4. Use \`memory_search\` / \`memory_get_for_files\` as you go, and \`memory_critique\` before you finish.\n` +
+    `5. IMPORTANT: When the user states durable facts about the codebase (decisions, conventions, guardrails, architecture), IMMEDIATELY capture them with \`context_note\`. Examples:\n` +
+    `   • "We use X because Y" → capture as DECISION\n` +
+    `   • "Never do X" → capture as GUARDRAIL\n` +
+    `   • "We always do X" → capture as CONVENTION\n` +
+    `   • "We tried X and it failed" → capture as FAILED_APPROACH\n` +
+    `   Don't wait for session end. Capture facts as they're stated, then continue the conversation naturally.`
   );
 }
 

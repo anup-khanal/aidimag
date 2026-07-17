@@ -90,3 +90,7 @@ code --install-extension aidimag-vscode-<version>.vsix
 
 Current version: **0.6.0** (a prebuilt `.vsix` is included in this folder).
 
+## Author
+
+**Anup Khanal**
+

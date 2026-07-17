@@ -38,6 +38,21 @@
       <action id="Aidimag.PinMemory" class="com.aidimag.intellij.actions.PinMemoryAction" text="Pin/Unpin Memory"
               description="Pinned memories never decay with age (evidence failure can still mark them stale)"/>
       <separator/>
+      <action id="Aidimag.Bootstrap" class="com.aidimag.intellij.actions.BootstrapAction" text="Bootstrap Starter Memory"
+              description="Survey the repo (README, docs, manifests, git churn) and LLM-draft a review-gated starter memory set"/>
+      <action id="Aidimag.Mine" class="com.aidimag.intellij.actions.MineAction" text="Mine Git History"
+              description="Mine commits into memory proposals — standard heuristics, deep LLM (--llm), or merged PRs (--prs)"/>
+      <action id="Aidimag.Harvest" class="com.aidimag.intellij.actions.HarvestAction" text="Harvest AI Chat Transcripts"
+              description="Mine durable facts you typed into Claude Code chats into the review queue (local-only, secrets redacted)"/>
+      <action id="Aidimag.Brief" class="com.aidimag.intellij.actions.BriefAction" text="Session Briefing"
+              description="In-scope memory, guardrails, stale warnings, and open questions to review before coding"/>
+      <action id="Aidimag.Gaps" class="com.aidimag.intellij.actions.GapsAction" text="Show Knowledge Gaps"
+              description="Zero-hit searches from agents and the CLI — the questions your memory couldn't answer"/>
+      <action id="Aidimag.VerifyTrust" class="com.aidimag.intellij.actions.VerifyTrustAction" text="Review Synced-in Evidence (Trust Gate)"
+              description="Inspect and approve evidence commands that arrived via team sync before they are ever executed"/>
+      <action id="Aidimag.GenerateContext" class="com.aidimag.intellij.actions.GenerateContextAction" text="Generate Context Files"
+              description="Render verified memory into CLAUDE.md / .cursorrules / copilot-instructions.md for non-MCP tools"/>
+      <separator/>
       <action id="Aidimag.Login" class="com.aidimag.intellij.actions.LoginAction" text="Login (approve this device)"/>
       <action id="Aidimag.ConnectTickets" class="com.aidimag.intellij.actions.ConnectTicketsAction" text="Connect Ticketing App"/>
       <action id="Aidimag.ShowTicket" class="com.aidimag.intellij.actions.ShowTicketAction" text="Show Ticket"/>

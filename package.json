@@ -1,17 +1,17 @@
 {
   "name": "aidimag",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Persistent, verified memory for AI coding agents. CLI: dim.",
   "type": "module",
   "license": "MIT",
   "author": "Anup Khanal",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-org/aidimag.git"
+    "url": "git+https://github.com/anupkhanal/aidimag.git"
   },
-  "homepage": "https://github.com/your-org/aidimag#readme",
+  "homepage": "https://github.com/anupkhanal/aidimag#readme",
   "bugs": {
-    "url": "https://github.com/your-org/aidimag/issues"
+    "url": "https://github.com/anupkhanal/aidimag/issues"
   },
   "bin": {
     "dim": "./dist/cli/index.js",

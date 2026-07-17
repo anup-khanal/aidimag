@@ -108,6 +108,10 @@ npm test            # node --test (builds first)
 
 Self-hosted sync deployment (Docker / Fly.io): [`deploy/`](./deploy/README.md).
 
+## Author
+
+**Anup Khanal**
+
 ## License
 
 [MIT](./LICENSE)

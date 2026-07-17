@@ -281,7 +281,7 @@ async function main() {
 
   server.tool(
     "context_note",
-    "Capture a durable fact the USER just stated in chat, IMMEDIATELY when they say it — don't wait for session end. Trigger on statements like 'we use X because Y', 'never touch Z', 'the deploy flow is …', 'we tried A and it failed'. Only durable, codebase-relevant facts (skip task-specific chatter). The note is queued for human review; user-stated facts carry high trust.",
+    "Capture a durable fact the USER just stated in chat. Call this IMMEDIATELY when the user shares codebase knowledge — don't wait for session end. ALWAYS trigger on: 'we use X because Y' (DECISION), 'never do X' (GUARDRAIL), 'we always X' (CONVENTION), 'we tried X, it failed' (FAILED_APPROACH), 'the architecture is...' (ARCHITECTURE). Skip task-specific requests like 'fix this bug'. User-stated facts are queued for review with high trust (HUMAN_ATTESTED evidence).",
     {
       statement: z
         .string()
@@ -544,6 +544,28 @@ async function main() {
       };
     }
   );
+
+  server.resource("instructions", "aidimag://instructions", async () => {
+    return {
+      contents: [
+        {
+          uri: "aidimag://instructions",
+          mimeType: "text/plain",
+          text:
+            `# aiDimag Instructions\n\n` +
+            `When the user states facts about the codebase, IMMEDIATELY capture them with context_note:\n` +
+            `• Hosting/deployment details → DECISION\n` +
+            `• Design requirements → DECISION\n` +
+            `• "We use X because Y" → DECISION\n` +
+            `• "Never do X" → GUARDRAIL\n` +
+            `• "We always do X" → CONVENTION\n` +
+            `• "We tried X, it failed" → FAILED_APPROACH\n` +
+            `• Architecture descriptions → ARCHITECTURE\n\n` +
+            `Capture facts as they're stated, then continue naturally. Don't ask permission.\n`,
+        },
+      ],
+    };
+  });
 
   server.resource("session-briefing", "aidimag://session-briefing", async () => {
     const root = process.env.AIDIMAG_REPO ?? findRepoRoot() ?? process.cwd();

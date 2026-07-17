@@ -2,8 +2,9 @@
   "name": "aidimag-vscode",
   "displayName": "aidimag — repo brain",
   "description": "Persistent, verified memory for AI coding agents. Memory Explorer panel, detail view, and stale-memory warnings inside VSCode.",
-  "version": "0.7.1",
+  "version": "1.0.0",
   "publisher": "aidimag",
+  "author": "Anup Khanal",
   "license": "MIT",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["AI", "Other"],
@@ -26,7 +27,14 @@
       { "command": "aidimag.unpinMemoryItem",         "title": "📌 Unpin Memory" },
       { "command": "aidimag.refuteMemoryItem",        "title": "✗ Refute Memory" },
       { "command": "aidimag.knowledgeSync",           "title": "aidimag: Sync Knowledge Inbox" },
-      { "command": "aidimag.revealMemoryExplorer",    "title": "aidimag: Open Memory Explorer" }
+      { "command": "aidimag.revealMemoryExplorer",    "title": "aidimag: Open Memory Explorer" },
+      { "command": "aidimag.bootstrap",               "title": "aidimag: Bootstrap Starter Memory (survey repo)" },
+      { "command": "aidimag.mine",                    "title": "aidimag: Mine Git History for Memories" },
+      { "command": "aidimag.harvest",                 "title": "aidimag: Harvest AI Chat Transcripts" },
+      { "command": "aidimag.brief",                   "title": "aidimag: Session Briefing" },
+      { "command": "aidimag.gaps",                    "title": "aidimag: Show Knowledge Gaps" },
+      { "command": "aidimag.verifyTrust",             "title": "aidimag: Review Synced-in Evidence (trust gate)" },
+      { "command": "aidimag.generateContext",         "title": "aidimag: Generate Context Files (CLAUDE.md, .cursorrules…)" }
     ],
     "viewsContainers": {
       "activitybar": [

@@ -1,7 +1,7 @@
 # aiDimag for IntelliJ IDEA
 
 IntelliJ plugin that mirrors the VSCode extension with JetBrains-native UI. Current
-version: **0.4.0** (built artifacts under `build/distributions/`).
+version: **1.0.0** (built artifacts under `build/distributions/`).
 
 ## Features
 
@@ -11,8 +11,10 @@ version: **0.4.0** (built artifacts under `build/distributions/`).
   - filter by kind and status, plus a search box.
   - a detail pane with claim, status, confidence, pinned state, scope, and evidence.
   - toolbar actions: **Add Memory**, **Verify All**, **Mine Commits**.
-- **Add Memory dialog** — kind + claim + pin, with a guardrail-level selector that appears
-  when the `GUARDRAIL` kind is chosen.
+  - context menu: **Pin/Unpin**, **Edit**, **Verify This**, **Verify All**, **Refute**.
+- **Add Memory dialog** — comprehensive form with kind, claim, paths, symbols, evidence, pin, 
+  and guardrail-level selector for `GUARDRAIL` memories.
+- **Edit Memory dialog** — edit claim, kind, guardrail level, add/remove evidence.
 - **Embedded dashboard tab** (JCEF) — the full `dim ui` dashboard inside the IDE.
 - **Status-bar widgets** — 🧠 memory health and ☁ sync status, with background auto-sync.
 - **Knowledge inbox watcher** — drop docs (design notes, ADRs, style guides, runbooks)
@@ -55,4 +57,8 @@ cd intellij-plugin
 ```
 
 The built artifact lands under `intellij-plugin/build/distributions/`.
+
+## Author
+
+**Anup Khanal**
 

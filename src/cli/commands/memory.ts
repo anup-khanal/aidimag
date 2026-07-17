@@ -43,6 +43,28 @@ export function registerMemoryCommands(program: Command): void {
             "# aidimag summarizes them into reviewed, pinned memories — see `dim knowledge`.\n"
         );
       }
+      // create .cursorrules for automatic MCP integration
+      const cursorrules = path.join(root, ".cursorrules");
+      if (!existsSync(cursorrules)) {
+        writeFileSync(
+          cursorrules,
+          `# Project Memory Integration
+
+At the start of EVERY new chat session, you MUST:
+1. Read the \`aidimag://session-briefing\` resource to load project memory, conventions, and guardrails
+2. Review all GUARDRAILS before making any code changes
+3. Search project memory using \`memory_search\` when working on specific features
+
+Before making any changes to code:
+- Check if there are relevant memories using \`memory_search\`
+- Respect all GUARDRAIL rules (ALWAYS = block, ASK-FIRST = confirm, NEVER = refuse)
+- Use \`context_note\` to capture any new conventions or decisions the user mentions
+
+This project uses aiDimag for persistent memory. Always consult memory before proceeding.
+`
+        );
+        console.log(`Created ${cursorrules} (tells Cursor/Claude to auto-load memory)`);
+      }
       // suggest MCP wiring
       console.log(fresh ? `Initialized aidimag in ${dir}` : `aidimag already initialized in ${dir}`);
       const hooks = installGitHooks(root);
@@ -268,6 +290,62 @@ export function registerMemoryCommands(program: Command): void {
       if (!match) fail(`no memory matching id '${id}'`);
       store.setPinned(match.id, false);
       console.log(`unpinned ${match.id.slice(0, 8)}: "${match.claim}" — normal decay resumes.`);
+      await autoSync(store);
+      store.close();
+    });
+
+  program
+    .command("update")
+    .description("Update a memory's claim, kind, or add/remove evidence")
+    .argument("<id>", "Memory id (full or 8-char prefix)")
+    .option("-c, --claim <text>", "Update the claim text")
+    .option("-k, --kind <kind>", `Change memory kind: ${KINDS.join("|")}`)
+    .option("-g, --guardrail-level <level>", `For kind=GUARDRAIL: ${GUARDRAIL_LEVELS.join("|")}`)
+    .option("-e, --evidence <ev...>", "Add evidence (format: TYPE:payload)")
+    .option("--remove-evidence <id>", "Remove evidence by id prefix")
+    .action(async (id: string, opts) => {
+      const store = MemoryStore.open();
+      const match = store.list(1000).find((m) => m.id === id || m.id.startsWith(id));
+      if (!match) fail(`no memory matching id '${id}'`);
+
+      const updates: any = {};
+      if (opts.claim) updates.claim = opts.claim.trim();
+      if (opts.kind) {
+        if (!KINDS.includes(opts.kind as any)) fail(`invalid kind '${opts.kind}' — must be one of: ${KINDS.join(", ")}`);
+        updates.kind = opts.kind;
+      }
+      if (opts.guardrailLevel) {
+        if (updates.kind !== "GUARDRAIL" && match.kind !== "GUARDRAIL") {
+          fail("--guardrail-level only applies to GUARDRAIL memories");
+        }
+        if (!GUARDRAIL_LEVELS.includes(opts.guardrailLevel as any)) {
+          fail(`invalid --guardrail-level '${opts.guardrailLevel}' — must be one of: ${GUARDRAIL_LEVELS.join(", ")}`);
+        }
+        updates.guardrailLevel = opts.guardrailLevel;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        store.update(match.id, updates);
+        console.log(`✓ Updated memory ${match.id.slice(0, 8)}`);
+      }
+
+      // Add evidence
+      for (const ev of opts.evidence || []) {
+        const [type, ...payloadParts] = ev.split(":");
+        const payload = payloadParts.join(":");
+        if (!payload) fail(`evidence format: TYPE:payload (e.g. STATIC_CHECK:grep -r "foo" src/)`);
+        store.addEvidence(match.id, { type: type as any, payload });
+        console.log(`✓ Added evidence: ${type}`);
+      }
+
+      // Remove evidence
+      if (opts.removeEvidence) {
+        const evidence = match.grounding.find((e) => e.id === opts.removeEvidence || e.id.startsWith(opts.removeEvidence));
+        if (!evidence) fail(`no evidence matching id '${opts.removeEvidence}'`);
+        store.removeEvidence(evidence.id);
+        console.log(`✓ Removed evidence ${evidence.id.slice(0, 8)}`);
+      }
+
       await autoSync(store);
       store.close();
     });

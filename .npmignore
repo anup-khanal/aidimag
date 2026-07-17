@@ -1,0 +1,34 @@
+# IDE plugins (distributed separately)
+vscode-extension/
+intellij-plugin/
+
+# Development files
+src/
+tsconfig.json
+.vscode/
+.idea/
+
+# Documentation
+docs/
+design/
+
+# Scripts and deployment
+scripts/
+deploy/
+
+# Test files
+*.test.ts
+*.test.js
+
+# Temporary files
+fix-*.js
+fix-*.cjs
+
+# Git
+.git/
+.github/
+.gitignore
+
+# Project-specific
+.aidimag/
+knowledge/

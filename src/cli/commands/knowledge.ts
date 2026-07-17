@@ -22,7 +22,9 @@ export function registerKnowledgeCommands(program: Command): void {
       const root = findRepoRoot() ?? fail("not inside a repo");
       const store = MemoryStore.open(root);
       const { ingestAll } = await import("../../knowledge/ingest.js");
-      const report = await ingestAll(store, root, resolveKnowledgeConfig(root));
+      const cfg = resolveKnowledgeConfig(root);
+      
+      const report = await ingestAll(store, root, cfg);
       printIngestReport(report);
       // Auto-approved knowledge (requireReview=false) becomes active memory → keep context fresh.
       if (report.processed.some((d) => d.pinned)) {

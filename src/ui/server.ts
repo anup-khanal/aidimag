@@ -26,7 +26,7 @@ import {
   type TicketsConfig,
 } from "../tickets/provider.js";
 import type { MemoryStore } from "../db/store.js";
-import type { MemoryKind } from "../types.js";
+import type { MemoryKind, GuardrailLevel } from "../types.js";
 import { PAGE_HTML } from "./page.js";
 
 function json(res: import("node:http").ServerResponse, code: number, body: unknown): void {
@@ -172,6 +172,8 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
           symbols: (b.symbols as string[]) ?? [],
           evidence: (b.evidence as Array<{ type: never; payload: string }>) ?? [],
           createdBy: "human:dashboard",
+          pinned: Boolean(b.pinned),
+          guardrailLevel: b.guardrailLevel as GuardrailLevel | undefined,
         });
         await indexMemory(store, entry).catch(() => false);
         json(res, 201, { memory: entry });
@@ -384,8 +386,31 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
   });
 
   return new Promise((resolve, reject) => {
-    server.on("error", reject);
-    server.listen(port, "127.0.0.1", () => resolve(`http://localhost:${port}`));
+    const tryPort = (currentPort: number, maxAttempts = 10): void => {
+      if (maxAttempts === 0) {
+        reject(new Error(`Could not find an available port after trying ${port}-${currentPort - 1}`));
+        return;
+      }
+
+      server.once("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE") {
+          console.log(`⚠ Port ${currentPort} is already in use, trying ${currentPort + 1}...`);
+          server.removeAllListeners("error");
+          tryPort(currentPort + 1, maxAttempts - 1);
+        } else {
+          reject(err);
+        }
+      });
+
+      server.listen(currentPort, "127.0.0.1", () => {
+        if (currentPort !== port) {
+          console.log(`ℹ Started on port ${currentPort} (requested port ${port} was in use)`);
+        }
+        resolve(`http://localhost:${currentPort}`);
+      });
+    };
+
+    tryPort(port);
   });
 }
 

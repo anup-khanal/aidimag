@@ -59,3 +59,9 @@ that have since become false.
 Head to **[Getting started](/getting-started)** to set it up in your repo, or read
 **[What is aiDimag?](/introduction)** for the why.
 
+---
+
+<p style="text-align: center; color: #666; margin-top: 2rem;">
+  Created by <strong>Anup Khanal</strong>
+</p>
+

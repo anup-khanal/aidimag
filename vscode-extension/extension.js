@@ -15,6 +15,13 @@
  *  - "aidimag: Show Ticket"     → `dim ticket show`, prefilled from branch
  *  - "aidimag: Create Ticket Branch" → `dim branch <id>`
  *  - Knowledge inbox watcher → auto-runs `dim knowledge sync` when docs are dropped
+ *  - "aidimag: Bootstrap Starter Memory" → `dim bootstrap` (repo survey → proposals)
+ *  - "aidimag: Mine Git History"  → `dim mine` / `--llm` / `--prs` / `--full` (quick-pick)
+ *  - "aidimag: Harvest AI Chat Transcripts" → `dim harvest` (+ --all / --install-hook)
+ *  - "aidimag: Session Briefing"  → `dim brief` in an output channel
+ *  - "aidimag: Show Knowledge Gaps" → `dim gaps` (+ clear / add-memory follow-ups)
+ *  - "aidimag: Review Synced-in Evidence" → interactive `dim verify --trust`
+ *  - "aidimag: Generate Context Files" → `dim generate-context -f <fmt>` (+ --auto)
  *  - Status bar: 🧠 memory counts + ☁ sync state
  *
  * Plain CommonJS: no build step, packageable with `vsce package` as-is.
@@ -37,12 +44,27 @@ let knowledgeWatcher   = null;
 
 function cfg() {
   const c = vscode.workspace.getConfiguration("aidimag");
+  const basePort = c.get("uiPort") || 4517;
+  // Generate unique port per project to allow multiple projects simultaneously
+  const root = repoRoot();
+  const port = root ? basePort + (hashCode(root) % 100) : basePort;
   return {
     dim:             c.get("dimPath") || "dim",
-    port:            c.get("uiPort") || 4517,
+    port:            port,
     autoSyncMinutes: c.get("autoSyncMinutes") ?? 10,
     knowledgeWatch:  c.get("knowledgeWatch") ?? true,
   };
+}
+
+// Simple hash function to generate consistent port offset per project
+function hashCode(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash);
 }
 
 function repoRoot() {
@@ -271,6 +293,7 @@ async function refreshMemoryTree() {
   try {
     const port  = await ensureUiServer();
     const state = await fetchState(port);
+    // Each project has its own dashboard instance, no filtering needed
     memoryTreeProvider.refresh(state.memories || []);
   } catch {
     memoryTreeProvider.refresh([]);
@@ -309,6 +332,39 @@ function openMemoryDetail(memory) {
     } else if (msg.command === "verify") {
       panel.dispose();
       verify();
+    } else if (msg.command === "verifySingle") {
+      try {
+        const { stdout } = await runDim(["verify", "-i", m.id.slice(0, 8)], root);
+        // Parse verification result
+        const lines = stdout.split('\n').filter(l => l.trim());
+        const resultLine = lines.find(l => l.includes(m.id.slice(0, 8)) || /[✓~?]/.test(l));
+        
+        let status = 'checked';
+        if (resultLine) {
+          if (resultLine.includes('VERIFIED')) status = 'VERIFIED ✓';
+          else if (resultLine.includes('STALE')) status = 'STALE ~';
+          else if (resultLine.includes('UNKNOWN')) status = 'UNKNOWN ?';
+        }
+        
+        // Force refresh with retries to ensure UI server picks up changes
+        refreshStatusBar();
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await refreshMemoryTree();
+        await new Promise(resolve => setTimeout(resolve, 200));
+        await refreshMemoryTree();
+        
+        vscode.window.showInformationMessage(
+          `Memory verified: ${status}. Status updated in Memory Explorer.`,
+          "Close Panel"
+        ).then(pick => {
+          if (pick) panel.dispose();
+        });
+      } catch (err) {
+        vscode.window.showErrorMessage(`Verify failed: ${err.message}`);
+      }
+    } else if (msg.command === "edit") {
+      panel.dispose();
+      await editMemory(m);
     } else if (msg.command === "refute") {
       const ok = await vscode.window.showWarningMessage(
         `Refute: "${m.claim.slice(0, 80)}"?`, "Refute", "Cancel",
@@ -402,6 +458,7 @@ function buildDetailHtml(m) {
   }
   .btn-pin    { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
   .btn-verify { background: var(--vscode-button-background);          color: var(--vscode-button-foreground); }
+  .btn-edit   { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
   .btn-refute { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); color: var(--vscode-errorForeground, #f48771); }
   button:hover { filter: brightness(1.12); }
   .pin-note, .dim { color: var(--vscode-descriptionForeground); font-size: 0.85em; margin-top: 8px; }
@@ -435,8 +492,12 @@ function buildDetailHtml(m) {
 
 <div class="actions">
   <button class="btn-pin"    onclick="post('pin')"   >${m.pinned ? "📌 Unpin" : "📌 Pin"}</button>
-  <button class="btn-verify" onclick="post('verify')">✓ Verify All</button>
+  <button class="btn-verify" onclick="post('verifySingle')">✓ Verify This</button>
+  <button class="btn-edit"   onclick="post('edit')">✏️ Edit</button>
   <button class="btn-refute" onclick="post('refute')">✗ Refute</button>
+</div>
+<div class="actions" style="margin-top: 8px;">
+  <button class="btn-verify" onclick="post('verify')" style="width: 100%;">✓ Verify All Memories</button>
 </div>
 ${m.pinned ? '<p class="pin-note">📌 Pinned: exempt from time decay. Evidence failure can still mark it stale.</p>' : ""}
 
@@ -445,6 +506,185 @@ ${m.pinned ? '<p class="pin-note">📌 Pinned: exempt from time decay. Evidence 
   function post(command) { vscode.postMessage({ command }); }
 </script>
 </body></html>`;
+}
+
+// ─── Edit Memory ───────────────────────────────────────────────────────────
+
+async function editMemory(memory) {
+  const root = repoRoot();
+  if (!root) return;
+
+  const panel = vscode.window.createWebviewPanel(
+    "aidimagEditMemory",
+    `Edit Memory: ${memory.claim.slice(0, 40)}...`,
+    vscode.ViewColumn.One,
+    { enableScripts: true }
+  );
+
+  const kindOptions = Object.keys(KIND_DESCRIPTIONS).map(k => 
+    `<option value="${k}" ${k === memory.kind ? "selected" : ""}>${k}</option>`
+  ).join("");
+
+  const evidenceRows = (memory.grounding || []).map(ev => 
+    `<div class="evidence-row">
+      <span class="ev-type">${escHtml(ev.type)}</span>
+      <span class="ev-payload">${escHtml(ev.payload)}</span>
+      <button onclick="removeEvidence('${ev.id}')">Remove</button>
+    </div>`
+  ).join("");
+
+  panel.webview.html = `<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: var(--vscode-font-family); padding: 20px; color: var(--vscode-foreground); }
+  h2 { margin-top: 0; }
+  label { display: block; margin-top: 16px; font-weight: 600; }
+  .hint { font-size: 0.9em; color: var(--vscode-descriptionForeground); margin-top: 4px; }
+  textarea, select { 
+    width: 100%; padding: 8px; margin-top: 6px; 
+    background: var(--vscode-input-background); 
+    color: var(--vscode-input-foreground); 
+    border: 1px solid var(--vscode-input-border);
+    font-family: inherit;
+  }
+  textarea { min-height: 100px; resize: vertical; }
+  .evidence-section { margin-top: 20px; }
+  .evidence-row { 
+    display: flex; gap: 10px; align-items: center; 
+    padding: 8px; margin: 6px 0;
+    background: var(--vscode-editor-background);
+    border-radius: 4px;
+  }
+  .ev-type { font-weight: 600; min-width: 120px; }
+  .ev-payload { flex: 1; font-family: monospace; font-size: 0.9em; }
+  .add-evidence { margin-top: 12px; }
+  .add-evidence select, .add-evidence input { display: inline-block; width: auto; margin-right: 8px; }
+  .actions { margin-top: 24px; display: flex; gap: 10px; }
+  button { 
+    padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer;
+    background: var(--vscode-button-background); 
+    color: var(--vscode-button-foreground);
+  }
+  button:hover { filter: brightness(1.1); }
+  button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+</style>
+</head><body>
+
+<h2>Edit Memory</h2>
+
+<label>Claim (falsifiable statement)
+  <div class="hint">${KIND_DESCRIPTIONS[memory.kind] || ""}</div>
+  <textarea id="claim">${escHtml(memory.claim)}</textarea>
+</label>
+
+<label>Kind
+  <select id="kind">${kindOptions}</select>
+</label>
+
+<div class="evidence-section">
+  <label>Evidence</label>
+  <div id="evidence-list">${evidenceRows}</div>
+  <div class="add-evidence">
+    <select id="newEvidenceType">
+      <option value="STATIC_CHECK">STATIC_CHECK</option>
+      <option value="COMMIT_REF">COMMIT_REF</option>
+      <option value="TEST_RESULT">TEST_RESULT</option>
+      <option value="HUMAN_ATTESTED">HUMAN_ATTESTED</option>
+      <option value="TICKET_REF">TICKET_REF</option>
+    </select>
+    <input type="text" id="newEvidencePayload" placeholder="Evidence payload">
+    <button class="secondary" onclick="addEvidence()">Add Evidence</button>
+  </div>
+</div>
+
+<div class="actions">
+  <button onclick="save()">Save Changes</button>
+  <button class="secondary" onclick="cancel()">Cancel</button>
+</div>
+
+<script>
+  const vscode = acquireVsCodeApi();
+  const memoryId = "${memory.id}";
+  const evidenceToRemove = [];
+  
+  function removeEvidence(id) {
+    evidenceToRemove.push(id);
+    event.target.parentElement.remove();
+  }
+  
+  function addEvidence() {
+    const type = document.getElementById('newEvidenceType').value;
+    const payload = document.getElementById('newEvidencePayload').value.trim();
+    if (!payload) return;
+    
+    vscode.postMessage({ 
+      command: 'addEvidence', 
+      type: type,
+      payload: payload
+    });
+    document.getElementById('newEvidencePayload').value = '';
+  }
+  
+  function save() {
+    const claim = document.getElementById('claim').value.trim();
+    const kind = document.getElementById('kind').value;
+    
+    if (claim.length < 10) {
+      alert('Claim must be at least 10 characters');
+      return;
+    }
+    
+    vscode.postMessage({ 
+      command: 'save',
+      claim: claim,
+      kind: kind,
+      evidenceToRemove: evidenceToRemove
+    });
+  }
+  
+  function cancel() {
+    vscode.postMessage({ command: 'cancel' });
+  }
+</script>
+</body></html>`;
+
+  panel.webview.onDidReceiveMessage(async (msg) => {
+    try {
+      if (msg.command === "save") {
+        const args = ["update", memory.id.slice(0, 8)];
+        if (msg.claim !== memory.claim) {
+          args.push("-c", msg.claim);
+        }
+        if (msg.kind !== memory.kind) {
+          args.push("-k", msg.kind);
+        }
+        if (args.length > 2) {
+          await runDim(args, root);
+        }
+        
+        // Remove evidence
+        for (const evId of msg.evidenceToRemove || []) {
+          await runDim(["update", memory.id.slice(0, 8), "--remove-evidence", evId.slice(0, 8)], root);
+        }
+        
+        panel.dispose();
+        vscode.window.showInformationMessage(`✓ Updated memory ${memory.id.slice(0, 8)}`);
+        refreshStatusBar();
+        refreshMemoryTree();
+      } else if (msg.command === "addEvidence") {
+        await runDim(["update", memory.id.slice(0, 8), "-e", `${msg.type}:${msg.payload}`], root);
+        vscode.window.showInformationMessage(`✓ Added ${msg.type} evidence`);
+        // Refresh the panel
+        panel.dispose();
+        editMemory(memory);
+      } else if (msg.command === "cancel") {
+        panel.dispose();
+      }
+    } catch (err) {
+      vscode.window.showErrorMessage(`Edit failed: ${err.message}`);
+    }
+  });
 }
 
 // ─── Add Memory flow ───────────────────────────────────────────────────────
@@ -465,51 +705,205 @@ async function addMemory() {
   const root = repoRoot();
   if (!root) { vscode.window.showErrorMessage("aidimag: open a folder first."); return; }
 
-  const kindPick = await vscode.window.showQuickPick(
-    Object.keys(KIND_DESCRIPTIONS).map((k) => ({ label: k, description: KIND_DESCRIPTIONS[k] })),
-    { placeHolder: "Select memory kind" },
+  const panel = vscode.window.createWebviewPanel(
+    "aidimagAddMemory",
+    "Add Memory",
+    vscode.ViewColumn.One,
+    { enableScripts: true }
   );
-  if (!kindPick) return;
 
-  const claim = await vscode.window.showInputBox({
-    prompt:       `Enter the ${kindPick.label} claim`,
-    placeHolder:  "e.g. We chose LWW over CRDTs because the team stays under 10 people.",
-    validateInput: (v) => (v && v.trim() ? null : "Claim cannot be empty."),
+  const kindOptions = Object.keys(KIND_DESCRIPTIONS).map(k => 
+    `<option value="${k}">${k}</option>`
+  ).join("");
+
+  panel.webview.html = `<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: var(--vscode-font-family); padding: 20px; color: var(--vscode-foreground); }
+  h2 { margin-top: 0; }
+  label { display: block; margin-top: 16px; font-weight: 600; }
+  .hint { font-size: 0.9em; color: var(--vscode-descriptionForeground); margin-top: 4px; }
+  textarea, select, input { 
+    width: 100%; padding: 8px; margin-top: 6px; 
+    background: var(--vscode-input-background); 
+    color: var(--vscode-input-foreground); 
+    border: 1px solid var(--vscode-input-border);
+    font-family: inherit;
+  }
+  textarea { min-height: 100px; resize: vertical; }
+  .guardrail-section, .evidence-section { margin-top: 20px; display: none; }
+  .evidence-row { display: flex; gap: 10px; margin-top: 8px; }
+  .evidence-row select { width: 200px; }
+  .evidence-row input { flex: 1; }
+  .actions { margin-top: 24px; display: flex; gap: 10px; }
+  button { 
+    padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer;
+    background: var(--vscode-button-background); 
+    color: var(--vscode-button-foreground);
+  }
+  button:hover { filter: brightness(1.1); }
+  button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+  .checkbox-row input[type="checkbox"] { width: auto; }
+</style>
+</head><body>
+
+<h2>Add Memory</h2>
+
+<label>Kind
+  <select id="kind" onchange="updateHints()">${kindOptions}</select>
+  <div class="hint" id="kindHint"></div>
+</label>
+
+<label>Claim (falsifiable statement)
+  <textarea id="claim" placeholder="e.g. We chose LWW over CRDTs because the team stays under 10 people"></textarea>
+</label>
+
+<div class="guardrail-section" id="guardrailSection">
+  <label>Guardrail Level
+    <select id="guardrailLevel">
+      <option value="ask-first">🤚 Ask First - Confirm before doing it</option>
+      <option value="always">✅ Always - Block completely, refuse to proceed</option>
+      <option value="never">🚫 Never - Just a suggestion</option>
+    </select>
+  </label>
+</div>
+
+<label>Paths (optional)
+  <div class="hint">Comma-separated paths this memory applies to, e.g. src/auth/, backend/</div>
+  <input type="text" id="paths" placeholder="src/auth/, backend/">
+</label>
+
+<label>Symbols (optional)
+  <div class="hint">Comma-separated symbols, e.g. UserService, authenticate()</div>
+  <input type="text" id="symbols" placeholder="UserService, authenticate()">
+</label>
+
+<div class="evidence-section">
+  <label>Evidence (optional but recommended)</label>
+  <div id="evidenceList"></div>
+  <div class="evidence-row">
+    <select id="newEvidenceType">
+      <option value="STATIC_CHECK">STATIC_CHECK</option>
+      <option value="COMMIT_REF">COMMIT_REF</option>
+      <option value="TEST_RESULT">TEST_RESULT</option>
+      <option value="HUMAN_ATTESTED">HUMAN_ATTESTED</option>
+      <option value="TICKET_REF">TICKET_REF</option>
+    </select>
+    <input type="text" id="newEvidencePayload" placeholder="Evidence payload">
+    <button class="secondary" onclick="addEvidence()">Add</button>
+  </div>
+</div>
+
+<div class="checkbox-row">
+  <input type="checkbox" id="pinned">
+  <label for="pinned" style="margin: 0;">📌 Pin this memory (never decays with age)</label>
+</div>
+
+<div class="actions">
+  <button onclick="save()">Save Memory</button>
+  <button class="secondary" onclick="cancel()">Cancel</button>
+</div>
+
+<script>
+  const vscode = acquireVsCodeApi();
+  const evidence = [];
+  
+  function updateHints() {
+    const kind = document.getElementById('kind').value;
+    const hints = ${JSON.stringify(KIND_DESCRIPTIONS)};
+    document.getElementById('kindHint').textContent = hints[kind] || '';
+    document.getElementById('guardrailSection').style.display = kind === 'GUARDRAIL' ? 'block' : 'none';
+    document.querySelector('.evidence-section').style.display = 'block';
+  }
+  
+  function addEvidence() {
+    const type = document.getElementById('newEvidenceType').value;
+    const payload = document.getElementById('newEvidencePayload').value.trim();
+    if (!payload) return;
+    
+    evidence.push({ type, payload });
+    const row = document.createElement('div');
+    row.className = 'evidence-row';
+    row.innerHTML = \`<span style="min-width: 120px; font-weight: 600;">\${type}</span><span style="flex: 1; font-family: monospace;">\${payload}</span><button class="secondary" onclick="removeEvidence(\${evidence.length - 1})">Remove</button>\`;
+    document.getElementById('evidenceList').appendChild(row);
+    document.getElementById('newEvidencePayload').value = '';
+  }
+  
+  function removeEvidence(idx) {
+    evidence.splice(idx, 1);
+    renderEvidence();
+  }
+  
+  function renderEvidence() {
+    const list = document.getElementById('evidenceList');
+    list.innerHTML = '';
+    evidence.forEach((ev, idx) => {
+      const row = document.createElement('div');
+      row.className = 'evidence-row';
+      row.innerHTML = \`<span style="min-width: 120px; font-weight: 600;">\${ev.type}</span><span style="flex: 1; font-family: monospace;">\${ev.payload}</span><button class="secondary" onclick="removeEvidence(\${idx})">Remove</button>\`;
+      list.appendChild(row);
+    });
+  }
+  
+  function save() {
+    const claim = document.getElementById('claim').value.trim();
+    const kind = document.getElementById('kind').value;
+    const paths = document.getElementById('paths').value.trim();
+    const symbols = document.getElementById('symbols').value.trim();
+    const pinned = document.getElementById('pinned').checked;
+    const guardrailLevel = kind === 'GUARDRAIL' ? document.getElementById('guardrailLevel').value : null;
+    
+    if (claim.length < 10) {
+      alert('Claim must be at least 10 characters');
+      return;
+    }
+    
+    vscode.postMessage({ 
+      command: 'save',
+      claim,
+      kind,
+      paths: paths ? paths.split(',').map(p => p.trim()).filter(Boolean) : [],
+      symbols: symbols ? symbols.split(',').map(s => s.trim()).filter(Boolean) : [],
+      evidence,
+      pinned,
+      guardrailLevel
+    });
+  }
+  
+  function cancel() {
+    vscode.postMessage({ command: 'cancel' });
+  }
+  
+  updateHints();
+</script>
+</body></html>`;
+
+  panel.webview.onDidReceiveMessage(async (msg) => {
+    try {
+      if (msg.command === "save") {
+        const args = ["remember", msg.claim, "-k", msg.kind];
+        if (msg.guardrailLevel) args.push("-g", msg.guardrailLevel);
+        if (msg.paths.length) args.push("-p", ...msg.paths);
+        if (msg.symbols.length) args.push("-s", ...msg.symbols);
+        for (const ev of msg.evidence) {
+          args.push("-e", `${ev.type}:${ev.payload}`);
+        }
+        if (msg.pinned) args.push("--pin");
+        
+        await runDim(args, root);
+        panel.dispose();
+        vscode.window.showInformationMessage(`✓ Memory saved${msg.pinned ? " 📌" : ""}`);
+        refreshStatusBar();
+        refreshMemoryTree();
+      } else if (msg.command === "cancel") {
+        panel.dispose();
+      }
+    } catch (err) {
+      vscode.window.showErrorMessage(`Add memory failed: ${err.message}`);
+    }
   });
-  if (!claim) return;
-
-  // GUARDRAIL memories need an enforcement level.
-  let guardrailLevel = null;
-  if (kindPick.label === "GUARDRAIL") {
-    const levelPick = await vscode.window.showQuickPick([
-      { label: "never",     description: "🚫 Agents must refuse and explain why" },
-      { label: "ask-first", description: "🤚 Confirm with the user before doing it" },
-      { label: "always",    description: "✅ Do it automatically, no need to ask" },
-    ], { placeHolder: "Guardrail enforcement level" });
-    if (!levelPick) return;
-    guardrailLevel = levelPick.label;
-  }
-
-  const pinPick = await vscode.window.showQuickPick([
-    { label: "No",       description: "Normal confidence decay over time" },
-    { label: "📌 Pin",   description: "Never decays with age (evidence failure still applies)" },
-  ], { placeHolder: "Pin this memory?" });
-  if (!pinPick) return;
-
-  const pinned = pinPick.label !== "No";
-  try {
-    const args = ["remember", claim.trim(), "-k", kindPick.label];
-    if (guardrailLevel) args.push("-g", guardrailLevel);
-    if (pinned) args.push("--pin");
-    await runDim(args, root);
-    vscode.window.setStatusBarMessage(
-      `aidimag: memory saved${pinned ? " 📌" : ""} ✓`, 5000,
-    );
-    refreshStatusBar();
-    refreshMemoryTree();
-  } catch (err) {
-    vscode.window.showErrorMessage(`aidimag add: ${err.message}`);
-  }
 }
 
 // ─── Tree context-menu item actions ───────────────────────────────────────
@@ -616,14 +1010,34 @@ async function verify() {
   const root = repoRoot();
   if (!root) return;
   try {
-    const { exitCode } = await runDim(["verify", "-q"], root);
+    const { exitCode, stdout, stderr } = await runDim(["verify"], root);
+    
+    // Count verification results
+    const lines = stdout.split('\n').filter(l => l.trim());
+    const verified = lines.filter(l => /✓/.test(l)).length;
+    const stale = lines.filter(l => /~/.test(l)).length;
+    const unknown = lines.filter(l => /\?/.test(l)).length;
+    
     if (exitCode === 2) {
       const pick = await vscode.window.showWarningMessage(
-        "aidimag: some memories went STALE — the codebase changed under them.", "Open Dashboard",
+        `aidimag: ${stale} memories went STALE — the codebase changed under them.`, "Open Dashboard",
       );
       if (pick) openDashboard();
+    } else if (verified > 0 || stale > 0 || unknown > 0) {
+      vscode.window.showInformationMessage(
+        `aidimag: Verified ${verified} memories${stale ? `, ${stale} stale` : ''}${unknown ? `, ${unknown} unknown` : ''}`,
+        "Open Dashboard"
+      ).then(pick => { if (pick) openDashboard(); });
     } else {
       vscode.window.setStatusBarMessage("aidimag: memories verified ✓", 4000);
+    }
+    
+    if (/untrusted/i.test(`${stdout}\n${stderr}`)) {
+      const pick = await vscode.window.showInformationMessage(
+        "aidimag: some synced-in evidence was skipped (untrusted). Inspect & approve it to include it in verification.",
+        "Review trust",
+      );
+      if (pick) verifyTrust();
     }
     refreshStatusBar();
     refreshMemoryTree();
@@ -765,6 +1179,119 @@ async function pinMemory() {
     refreshMemoryTree();
   } catch (err) {
     vscode.window.showErrorMessage(`aidimag pin: ${err.message}`);
+  }
+}
+
+// ─── Capture & context (bootstrap / mine / harvest / brief / gaps / trust) ──
+
+/** Run an interactive or long-running dim command in an integrated terminal. */
+function runInTerminal(name, commandTail) {
+  const root = repoRoot();
+  if (!root) { vscode.window.showErrorMessage("aidimag: open a folder first."); return; }
+  const term = vscode.window.createTerminal({ name: `aidimag ${name}`, cwd: root });
+  term.show();
+  term.sendText(`${cfg().dim} ${commandTail}`);
+}
+
+async function bootstrap() {
+  const pick = await vscode.window.showInformationMessage(
+    "aidimag: survey this repo (README, docs, manifests, git churn) and LLM-draft a starter memory set? " +
+    "Everything lands in the review queue — nothing is stored without your approval.",
+    { modal: true }, "Bootstrap", "Bootstrap (--force re-run)",
+  );
+  if (!pick) return;
+  runInTerminal("bootstrap", pick.includes("force") ? "bootstrap --force" : "bootstrap");
+  vscode.window.setStatusBarMessage("aidimag: bootstrap running — review proposals with dim review / the dashboard", 8000);
+}
+
+async function mine() {
+  const pick = await vscode.window.showQuickPick(
+    [
+      { label: "$(zap) Standard mine", description: "fast keyword heuristics, incremental", args: "mine" },
+      { label: "$(sparkle) Deep mine (--llm)", description: "LLM reads each commit's message + diff — higher quality", args: "mine --llm" },
+      { label: "$(git-pull-request) Mine merged PRs (--prs)", description: "PR descriptions + review comments via gh", args: "mine --prs" },
+      { label: "$(history) Full rescan (--full)", description: "re-mine the entire history with heuristics", args: "mine --full" },
+    ],
+    { placeHolder: "Mine git history into memory proposals (review-gated)" },
+  );
+  if (!pick) return;
+  runInTerminal("mine", pick.args);
+}
+
+async function harvest() {
+  const pick = await vscode.window.showQuickPick(
+    [
+      { label: "$(comment-discussion) Harvest latest sessions", description: "mine facts you typed into Claude Code chats (local-only, secrets redacted)", args: "harvest" },
+      { label: "$(archive) Harvest all transcripts (--all)", description: "process every stored transcript for this repo", args: "harvest --all" },
+      { label: "$(plug) Install SessionEnd hook (--install-hook)", description: "auto-harvest at the end of every Claude Code session", args: "harvest --install-hook" },
+    ],
+    { placeHolder: "Harvest durable facts from AI chat transcripts into the review queue" },
+  );
+  if (!pick) return;
+  runInTerminal("harvest", pick.args);
+}
+
+async function brief() {
+  const root = repoRoot();
+  if (!root) return;
+  try {
+    const { stdout } = await runDim(["brief"], root);
+    const out = vscode.window.createOutputChannel("aidimag brief", { log: false });
+    out.clear(); out.append(stdout); out.show(true);
+  } catch (err) {
+    vscode.window.showErrorMessage(`aidimag brief: ${err.message}`);
+  }
+}
+
+async function gaps() {
+  const root = repoRoot();
+  if (!root) return;
+  try {
+    const { stdout } = await runDim(["gaps"], root);
+    const out = vscode.window.createOutputChannel("aidimag gaps", { log: false });
+    out.clear(); out.append(stdout); out.show(true);
+    if (/no (knowledge )?gaps/i.test(stdout)) return;
+    const pick = await vscode.window.showInformationMessage(
+      "aidimag: these are questions your memory couldn't answer. Fill them with dim remember, or clear the log.",
+      "Add Memory", "Clear gaps",
+    );
+    if (pick === "Add Memory") vscode.commands.executeCommand("aidimag.addMemory");
+    if (pick === "Clear gaps") { await runDim(["gaps", "--clear"], root); vscode.window.setStatusBarMessage("aidimag: gap log cleared", 4000); }
+  } catch (err) {
+    vscode.window.showErrorMessage(`aidimag gaps: ${err.message}`);
+  }
+}
+
+function verifyTrust() {
+  // Interactive: shows each synced-in evidence command for inspection/approval.
+  runInTerminal("verify --trust", "verify --trust");
+}
+
+async function generateContext() {
+  const root = repoRoot();
+  if (!root) return;
+  const pick = await vscode.window.showQuickPick(
+    [
+      { label: "$(files) All formats", description: "CLAUDE.md + .cursorrules + copilot-instructions.md", fmt: "all" },
+      { label: "CLAUDE.md", fmt: "claude" },
+      { label: ".cursorrules", fmt: "cursorrules" },
+      { label: ".github/copilot-instructions.md", fmt: "copilot" },
+    ],
+    { placeHolder: "Render verified memory into static context files for non-MCP tools" },
+  );
+  if (!pick) return;
+  try {
+    const { stdout } = await runDim(["generate-context", "-f", pick.fmt], root);
+    const enable = await vscode.window.showInformationMessage(
+      (stdout.trim().split("\n").pop() || "aidimag: context files generated ✓"),
+      "Enable auto-refresh",
+    );
+    if (enable) {
+      await runDim(["generate-context", "-f", pick.fmt, "--auto"], root);
+      vscode.window.setStatusBarMessage("aidimag: context files will auto-refresh on verify/review/sync", 6000);
+    }
+  } catch (err) {
+    vscode.window.showErrorMessage(`aidimag generate-context: ${err.message}`);
   }
 }
 
@@ -949,9 +1476,25 @@ function activate(context) {
     vscode.commands.registerCommand("aidimag.refuteMemoryItem",       refuteMemoryItem),
     vscode.commands.registerCommand("aidimag.knowledgeSync",          () => runKnowledgeSync({ manual: true })),
     vscode.commands.registerCommand("aidimag.revealMemoryExplorer",   revealMemoryExplorer),
+    // capture & context commands
+    vscode.commands.registerCommand("aidimag.bootstrap",              bootstrap),
+    vscode.commands.registerCommand("aidimag.mine",                   mine),
+    vscode.commands.registerCommand("aidimag.harvest",                harvest),
+    vscode.commands.registerCommand("aidimag.brief",                  brief),
+    vscode.commands.registerCommand("aidimag.gaps",                   gaps),
+    vscode.commands.registerCommand("aidimag.verifyTrust",            verifyTrust),
+    vscode.commands.registerCommand("aidimag.generateContext",        generateContext),
     // disposables
     statusItem, syncStatusItem, treeView, memoryDecorations,
   );
+
+  // Auto-start dashboard server on extension activation
+  const root = repoRoot();
+  if (root) {
+    ensureUiServer().catch(() => {
+      // Silent failure - dashboard will start on first command that needs it
+    });
+  }
 
   // initial data load
   refreshStatusBar();

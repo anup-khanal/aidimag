@@ -15,6 +15,7 @@ import { execFileSync } from "node:child_process";
 import { runEvidence, type RunOptions, type RunOutcome } from "./runners.js";
 import type { MemoryStore } from "../db/store.js";
 import type { MemoryEntry, MemoryStatus } from "../types.js";
+import { debugLog } from "../debug.js";
 
 export interface MemoryVerification {
   memoryId: string;
@@ -95,6 +96,8 @@ export function verifyMemory(
   const runnable = outcomes.filter((o) => o.result === "PASS" || o.result === "FAIL");
   const anyFail = runnable.some((o) => o.result === "FAIL");
   const allPass = runnable.length > 0 && runnable.every((o) => o.result === "PASS");
+  
+  debugLog("verify", `${memory.id.slice(0, 8)} outcomes=${outcomes.length} runnable=${runnable.length} allPass=${allPass} status=${memory.status} verifiedAt=${memory.verifiedAt}`);
 
   let after: MemoryStatus = memory.status;
   let confidenceAfter = memory.confidence;
@@ -111,6 +114,7 @@ export function verifyMemory(
     // verified_at — re-running verify must not refresh human trust.
     if (memory.verifiedAt === null && memory.status === "UNVERIFIED") {
       after = "VERIFIED";
+      debugLog("verify", `${memory.id.slice(0, 8)} UNVERIFIED→VERIFIED (first human attestation)`);
     } else if (!memory.pinned) {
       const next = decayedConfidence(
         memory.confidence,
@@ -141,7 +145,12 @@ export function verifyMemory(
 
   if (after !== memory.status) store.setStatus(memory.id, after);
   if (confidenceAfter !== memory.confidence) store.setConfidence(memory.id, confidenceAfter);
-  if (after === "VERIFIED" && allPass && machineRunnable.length > 0) store.touchVerified(memory.id);
+  // Touch verifiedAt when becoming VERIFIED (machine-runnable OR human-attested first verification)
+  if (after === "VERIFIED" && allPass) {
+    if (machineRunnable.length > 0 || memory.verifiedAt === null) {
+      store.touchVerified(memory.id);
+    }
+  }
 
   return {
     memoryId: memory.id,

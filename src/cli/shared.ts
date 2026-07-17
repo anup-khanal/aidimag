@@ -111,10 +111,29 @@ export function printIngestReport(report: import("../knowledge/ingest.js").Inges
   }
   if (report.pendingNoSummarizer.length) {
     console.log(
-      `⏳ ${report.pendingNoSummarizer.length} doc(s) waiting in the inbox — no summarizer available ` +
-        `(configure knowledge.summarizer / an LLM provider, or summarize via a connected MCP agent).`
+      `⏳ ${report.pendingNoSummarizer.length} doc(s) waiting in the inbox — no summarizer available.\n` +
+        `\n` +
+        `   📋 Files waiting:\n`
     );
-    for (const f of report.pendingNoSummarizer) console.log(`   • ${f}`);
+    for (const f of report.pendingNoSummarizer) console.log(`      • ${f}`);
+    console.log(
+      `\n` +
+      `   💡 To summarize, choose one:\n` +
+      `\n` +
+      `   1. Use Cursor AI (if you have MCP configured):\n` +
+      `      Ask Cursor: "Process the knowledge inbox and create memory proposals"\n` +
+      `      (Cursor will use the knowledge_ingest prompt automatically)\n` +
+      `\n` +
+      `   2. Set OpenAI API key:\n` +
+      `      export OPENAI_API_KEY="sk-your-key-here"\n` +
+      `      dim knowledge sync\n` +
+      `\n` +
+      `   3. Use Ollama (free/local):\n` +
+      `      brew install ollama && ollama serve &\n` +
+      `      ollama pull llama3.2\n` +
+      `      export AIDIMAG_LLM=ollama\n` +
+      `      dim knowledge sync`
+    );
   }
   if (
     !report.processed.length && !report.duplicates.length &&

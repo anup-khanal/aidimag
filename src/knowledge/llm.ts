@@ -86,6 +86,17 @@ class OllamaTextProvider implements TextProvider {
 
 let cached: TextProvider | null | undefined;
 
+/** Check if running inside an MCP client (e.g., Cursor AI with MCP enabled). */
+export function isMcpAvailable(): boolean {
+  // MCP clients communicate via stdio with the MCP server process
+  // When dim is invoked via MCP, stdin/stdout are connected to the client
+  return (
+    typeof process.send === "function" || // IPC channel (some MCP clients)
+    !process.stdin.isTTY ||                // stdin is piped (MCP stdio transport)
+    process.env.MCP_CLIENT === "true"     // explicit env var
+  );
+}
+
 /** Resolve the text/LLM provider (cached per process). null = none available. */
 export async function getTextProvider(): Promise<TextProvider | null> {
   if (cached !== undefined) return cached;
@@ -101,7 +112,7 @@ export async function getTextProvider(): Promise<TextProvider | null> {
     if (!p) throw new Error(`AIDIMAG_LLM=ollama but Ollama is not reachable at ${OLLAMA_URL}`);
     return (cached = p);
   }
-  // auto
+  // auto: try OpenAI first, then Ollama
   if (process.env.OPENAI_API_KEY) return (cached = new OpenAiTextProvider());
   return (cached = await OllamaTextProvider.detect());
 }

@@ -251,6 +251,9 @@ export function finalizeDoc(
       source,
       sourceRef,
       rationale: c.rationale ?? `Extracted from ${doc.file}`,
+      evidence: [
+        { type: "HUMAN_ATTESTED", payload: `Extracted from knowledge doc ${doc.file} (${via})` },
+      ],
     });
     if (p) proposalIds.push(p.id);
   }

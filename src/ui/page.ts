@@ -90,7 +90,7 @@ export const PAGE_HTML = /* html */ `<!DOCTYPE html>
         <option value="">all kinds</option>
         <option>DECISION</option><option>CONVENTION</option><option>GOTCHA</option>
         <option>FAILED_APPROACH</option><option>ARCHITECTURE</option><option>INVARIANT</option>
-        <option>TODO_CONTEXT</option>
+        <option>TODO_CONTEXT</option><option>GUARDRAIL</option><option>SKILL</option>
       </select>
     </div>
     <div id="memories"></div>
@@ -103,13 +103,27 @@ export const PAGE_HTML = /* html */ `<!DOCTYPE html>
   <label>Claim (write it falsifiable — something a check could verify)</label>
   <textarea id="nm-claim" placeholder="All DB access goes through src/db/store.ts; nothing else imports better-sqlite3"></textarea>
   <label>Kind</label>
-  <select id="nm-kind">
-    <option>GOTCHA</option><option>DECISION</option><option>CONVENTION</option>
+  <select id="nm-kind" onchange="toggleGuardrailLevel()">
+    <option>DECISION</option><option>CONVENTION</option><option>GOTCHA</option>
     <option>FAILED_APPROACH</option><option>ARCHITECTURE</option><option>INVARIANT</option>
-    <option>TODO_CONTEXT</option>
+    <option>TODO_CONTEXT</option><option>GUARDRAIL</option><option>SKILL</option>
   </select>
+  <div id="guardrail-section" style="display:none;">
+    <label>Guardrail Level</label>
+    <select id="nm-guardrail-level">
+      <option value="ask-first">🤚 Ask First - Confirm before doing it</option>
+      <option value="always">✅ Always - Block completely, refuse to proceed</option>
+      <option value="never">🚫 Never - Just a suggestion</option>
+    </select>
+  </div>
   <label>Scope paths (comma-separated, empty = repo-wide)</label>
   <input id="nm-paths" placeholder="src/db, src/api/auth.ts">
+  <label>Symbols (comma-separated, optional)</label>
+  <input id="nm-symbols" placeholder="UserService, authenticate()">
+  <label>
+    <input type="checkbox" id="nm-pinned">
+    📌 Pin this memory (exempt from time decay)
+  </label>
   <label>Evidence (optional but recommended)</label>
   <div id="nm-evidence"></div>
   <button style="margin-top:6px" onclick="addEvidenceRow()">＋ add evidence</button>
@@ -297,21 +311,34 @@ function addEvidenceRow() {
   document.getElementById("nm-evidence").appendChild(row);
 }
 
+function toggleGuardrailLevel() {
+  const kind = document.getElementById("nm-kind").value;
+  const section = document.getElementById("guardrail-section");
+  section.style.display = kind === "GUARDRAIL" ? "block" : "none";
+}
+
 async function saveMemory() {
   const claim = document.getElementById("nm-claim").value.trim();
   if (claim.length < 10) { toast("Claim is too short"); return; }
+  const kind = document.getElementById("nm-kind").value;
   const evidence = [...document.querySelectorAll("#nm-evidence .ev-row")]
     .map(r => ({ type: r.querySelector("select").value, payload: r.querySelector("input").value.trim() }))
     .filter(e => e.payload);
   const paths = document.getElementById("nm-paths").value.split(",").map(s => s.trim()).filter(Boolean);
+  const symbols = document.getElementById("nm-symbols").value.split(",").map(s => s.trim()).filter(Boolean);
+  const pinned = document.getElementById("nm-pinned").checked;
+  const guardrailLevel = kind === "GUARDRAIL" ? document.getElementById("nm-guardrail-level").value : undefined;
+  
   try {
     await api("/api/memories", {
       method: "POST",
-      body: JSON.stringify({ kind: document.getElementById("nm-kind").value, claim, paths, evidence }),
+      body: JSON.stringify({ kind, claim, paths, symbols, evidence, pinned, guardrailLevel }),
     });
     document.getElementById("dlg-new").close();
     document.getElementById("nm-claim").value = "";
     document.getElementById("nm-paths").value = "";
+    document.getElementById("nm-symbols").value = "";
+    document.getElementById("nm-pinned").checked = false;
     document.getElementById("nm-evidence").innerHTML = "";
     toast("Memory saved");
     load();
