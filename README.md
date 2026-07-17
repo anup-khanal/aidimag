@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/public/logo.svg" alt="aiDimag logo" width="96" height="96" />
-</p>
-
 # aiDimag
 
 > Persistent, verified memory for AI coding agents. CLI: **`dim`**.
@@ -80,23 +76,19 @@ verified memory into `CLAUDE.md` / `.cursorrules` / `.github/copilot-instruction
   login, brain-scoped API keys, hashed credentials, cross-machine verification consensus.
 - **Knowledgebase inbox** — drop design docs / ADRs / PDFs / DOCX into `knowledge/` and
   they're summarized into reviewed, pinned memories.
-- **Web dashboard** (`dim ui`) plus [VS Code](./vscode-extension/) and
-  [IntelliJ](./intellij-plugin/) extensions.
+- **Web dashboard** (`dim ui`) plus [VS Code](https://github.com/anupkhanal/aidimag/tree/main/vscode-extension) and
+  [IntelliJ](https://github.com/anupkhanal/aidimag/tree/main/intellij-plugin) extensions.
 
 ## Documentation
 
-Full docs — installation, a 5-minute quick start, every CLI command, scenario guides,
-MCP/IDE setup, configuration, FAQ, and glossary — live in [`docs/`](./docs) and are
-published via GitHub Pages.
+Full documentation available at: **[github.com/anupkhanal/aidimag](https://github.com/anupkhanal/aidimag)**
 
-```sh
-npm run docs:dev    # local preview
-```
-
-- [Getting started](./docs/getting-started.md) · [Quick start](./docs/quickstart.md)
-- [CLI reference](./docs/cli-reference.md) · [Configuration](./docs/configuration.md)
-- [MCP integration](./docs/mcp.md) · [Team sync](./docs/guides/team-sync.md)
-- Internal design notes live in [`design/`](./design/)
+- [Getting Started](https://github.com/anupkhanal/aidimag/blob/main/docs/getting-started.md)
+- [Quick Start](https://github.com/anupkhanal/aidimag/blob/main/docs/quickstart.md)
+- [CLI Reference](https://github.com/anupkhanal/aidimag/blob/main/docs/cli-reference.md)
+- [MCP Integration](https://github.com/anupkhanal/aidimag/blob/main/docs/mcp.md)
+- [Team Sync Guide](https://github.com/anupkhanal/aidimag/blob/main/docs/guides/team-sync.md)
+- [Configuration](https://github.com/anupkhanal/aidimag/blob/main/docs/configuration.md)
 
 ## Development
 
@@ -106,7 +98,7 @@ npm run build       # tsc → dist/
 npm test            # node --test (builds first)
 ```
 
-Self-hosted sync deployment (Docker / Fly.io): [`deploy/`](./deploy/README.md).
+Self-hosted sync deployment (Docker / Fly.io): [deploy/](https://github.com/anupkhanal/aidimag/tree/main/deploy).
 
 ## Author
 
