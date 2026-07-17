@@ -58,6 +58,10 @@ cd intellij-plugin
 
 The built artifact lands under `intellij-plugin/build/distributions/`.
 
+## License
+
+Free for teams of 10 or fewer users. For larger teams or commercial use, see the [LICENSE](https://github.com/anupkhanal/aidimag/blob/main/LICENSE).
+
 ## Author
 
 **Anup Khanal**

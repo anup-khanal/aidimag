@@ -90,6 +90,10 @@ code --install-extension aidimag-vscode-<version>.vsix
 
 Current version: **0.6.0** (a prebuilt `.vsix` is included in this folder).
 
+## License
+
+Free for teams of 10 or fewer users. For larger teams or commercial use, see the [LICENSE](https://github.com/anupkhanal/aidimag/blob/main/LICENSE).
+
 ## Author
 
 **Anup Khanal**

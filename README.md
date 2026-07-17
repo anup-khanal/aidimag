@@ -13,6 +13,10 @@ evidence (a shell check, an anchored commit, a test) that `dim verify` re-runs a
 current repo — beliefs that stop being true go **STALE** instead of silently misleading
 your AI.
 
+## License
+
+**Free for teams of 10 or fewer users.** For larger teams or commercial use beyond this limit, a commercial license is required. See [LICENSE](./LICENSE) for details or contact for pricing.
+
 ## Install
 
 ```sh
@@ -106,5 +110,5 @@ Self-hosted sync deployment (Docker / Fly.io): [deploy/](https://github.com/anup
 
 ## License
 
-[MIT](./LICENSE)
+[Fair Source License](./LICENSE) - Free for teams of 10 or fewer users. Commercial license required for larger organizations.
 
