@@ -11,36 +11,36 @@ import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.*
 
-data class EvidenceItem(val type: String, val payload: String)
-
-class AddMemoryDialog(project: Project) : DialogWrapper(project, true) {
+class EditMemoryDialog(project: Project, private val memory: MemoryNode) : DialogWrapper(project, true) {
 
   private val claimArea = JTextArea(6, 44).apply {
     lineWrap = true
     wrapStyleWord = true
     border = JBUI.Borders.empty(4)
+    text = memory.claim
   }
 
   private val kindCombo = JComboBox(arrayOf(
     "DECISION", "CONVENTION", "GOTCHA", "FAILED_APPROACH",
     "INVARIANT", "ARCHITECTURE", "TODO_CONTEXT", "GUARDRAIL", "SKILL",
-  ))
+  )).apply {
+    selectedItem = memory.kind
+  }
 
   private val guardrailCombo = JComboBox(arrayOf("ask-first", "always", "never")).apply {
-    isVisible = false
+    isVisible = memory.kind == "GUARDRAIL"
+    selectedItem = memory.guardrailLevel ?: "ask-first"
   }
-  private val guardrailLabel = JBLabel("Enforcement:").apply { isVisible = false }
-
-  private val pathsField = JTextField(30).apply {
-    toolTipText = "Comma-separated paths, e.g. src/auth/, backend/"
-  }
-
-  private val symbolsField = JTextField(30).apply {
-    toolTipText = "Comma-separated symbols, e.g. UserService, authenticate()"
+  private val guardrailLabel = JBLabel("Enforcement:").apply { 
+    isVisible = memory.kind == "GUARDRAIL"
   }
 
-  private val evidenceList = mutableListOf<EvidenceItem>()
-  private val evidenceListModel = DefaultListModel<String>()
+  private val evidenceList = memory.evidence.mapIndexed { idx, ev ->
+    EvidenceItemWithId(ev.type, ev.payload, idx)
+  }.toMutableList()
+  private val evidenceListModel = DefaultListModel<String>().apply {
+    memory.evidence.forEach { addElement("${it.type}: ${it.payload}") }
+  }
   private val evidenceJList = JList(evidenceListModel)
 
   private val evidenceTypeCombo = JComboBox(arrayOf(
@@ -48,19 +48,21 @@ class AddMemoryDialog(project: Project) : DialogWrapper(project, true) {
   ))
   private val evidencePayloadField = JTextField(30)
 
-  private val pinnedCheck = JCheckBox("📌 Pin this memory (exempt from time decay)")
+  private val evidenceToRemove = mutableListOf<Int>()
 
   val claim: String  get() = claimArea.text.trim()
   val kind: String   get() = kindCombo.selectedItem as String
-  val pinned: Boolean get() = pinnedCheck.isSelected
   val guardrailLevel: String? get() = if (kind == "GUARDRAIL") guardrailCombo.selectedItem as String else null
-  val paths: List<String> get() = pathsField.text.split(',').map { it.trim() }.filter { it.isNotEmpty() }
-  val symbols: List<String> get() = symbolsField.text.split(',').map { it.trim() }.filter { it.isNotEmpty() }
-  val evidence: List<EvidenceItem> get() = evidenceList.toList()
+  val newEvidence: List<EvidenceItem> get() = evidenceList.filter { ev ->
+    ev.id == -1 // New evidence has id -1
+  }.map { EvidenceItem(it.type, it.payload) }
+  val removedEvidenceIndices: List<Int> get() = evidenceToRemove
+
+data class EvidenceItemWithId(val type: String, val payload: String, val id: Int)
 
   init {
-    title = "Add Memory"
-    setOKButtonText("Save")
+    title = "Edit Memory: ${memory.claim.take(40)}..."
+    setOKButtonText("Save Changes")
     kindCombo.addActionListener {
       val isGuardrail = kindCombo.selectedItem == "GUARDRAIL"
       guardrailCombo.isVisible = isGuardrail
@@ -79,7 +81,7 @@ class AddMemoryDialog(project: Project) : DialogWrapper(project, true) {
         val type = evidenceTypeCombo.selectedItem as String
         val payload = evidencePayloadField.text.trim()
         if (payload.isNotEmpty()) {
-          evidenceList.add(EvidenceItem(type, payload))
+          evidenceList.add(EvidenceItemWithId(type, payload, -1)) // -1 means new
           evidenceListModel.addElement("$type: $payload")
           evidencePayloadField.text = ""
         }
@@ -90,16 +92,21 @@ class AddMemoryDialog(project: Project) : DialogWrapper(project, true) {
       addActionListener {
         val idx = evidenceJList.selectedIndex
         if (idx >= 0) {
-          evidenceList.removeAt(idx)
+          val item = evidenceList[idx]
+          if (item.id >= 0) {
+            // Removing existing evidence - track index for removal
+            evidenceToRemove.add(item.id)
+          }
           evidenceListModel.remove(idx)
+          evidenceList.removeAt(idx)
         }
       }
     }
 
     val evidencePanel = JPanel(BorderLayout()).apply {
-      add(JBLabel("Evidence (optional but recommended):"), BorderLayout.NORTH)
+      add(JBLabel("Evidence:"), BorderLayout.NORTH)
       add(JBScrollPane(evidenceJList).apply {
-        preferredSize = Dimension(500, 80)
+        preferredSize = Dimension(500, 100)
       }, BorderLayout.CENTER)
       val addPanel = JPanel().apply {
         add(evidenceTypeCombo)
@@ -114,10 +121,7 @@ class AddMemoryDialog(project: Project) : DialogWrapper(project, true) {
       .addLabeledComponent(JBLabel("Kind:"), kindCombo, 1, false)
       .addLabeledComponent(guardrailLabel, guardrailCombo, 1, false)
       .addLabeledComponent(JBLabel("Claim:"), claimScroll, 1, true)
-      .addLabeledComponent(JBLabel("Paths (optional):"), pathsField, 1, false)
-      .addLabeledComponent(JBLabel("Symbols (optional):"), symbolsField, 1, false)
       .addComponent(evidencePanel, 8)
-      .addComponent(pinnedCheck, 8)
       .addComponentFillVertically(JPanel(), 0)
       .panel
       .also { it.border = JBUI.Borders.empty(8) }
@@ -125,10 +129,9 @@ class AddMemoryDialog(project: Project) : DialogWrapper(project, true) {
 
   override fun doOKAction() {
     if (claim.length < 10) {
-      Messages.showErrorDialog(contentPane, "Claim must be at least 10 characters.", "Add Memory")
+      Messages.showErrorDialog(contentPane, "Claim must be at least 10 characters.", "Edit Memory")
       return
     }
     super.doOKAction()
   }
 }
-

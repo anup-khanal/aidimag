@@ -14,6 +14,17 @@ import java.io.File
 class AidimagStartupActivity : ProjectActivity {
   override suspend fun execute(project: Project) {
     val service = AidimagStateService.getInstance(project)
+    
+    // Auto-start dashboard server on project open
+    ApplicationManager.getApplication().executeOnPooledThread {
+      try {
+        val dashService = com.aidimag.intellij.dashboard.AidimagDashboardService.getInstance(project)
+        dashService.ensureServer()
+      } catch (_: Exception) {
+        // Silent failure - dashboard will start on first command that needs it
+      }
+    }
+    
     service.refreshAllAsync()
     service.scheduleAutoSync()
     service.scheduleInitialSync()

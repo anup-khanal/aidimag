@@ -63,7 +63,7 @@ Head to **[Getting started](/getting-started)** to set it up in your repo, or re
 
 ## License
 
-**Free for teams of 10 or fewer users.** For larger teams or commercial use beyond this limit, a commercial license is required. See the [LICENSE](https://github.com/anupkhanal/aidimag/blob/main/LICENSE) for full terms.
+**Free for teams of 10 or fewer users** under the [Elastic License 2.0](https://github.com/anupkhanal/aidimag/blob/main/LICENSE). For larger teams or commercial use beyond this limit, a commercial license is required. See [Pricing & licensing](/pricing) for details.
 
 ---
 

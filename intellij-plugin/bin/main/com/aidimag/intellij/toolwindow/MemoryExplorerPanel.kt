@@ -258,14 +258,17 @@ class MemoryExplorerPanel(private val project: Project) : JPanel(BorderLayout())
   }
 
   private fun loadMemories(): Pair<List<MemoryNode>, String> {
-    val port = AidimagSettingsState.getInstance().state.uiPort
     val dash = AidimagDashboardService.getInstance(project)
 
     // try REST API (rich data including evidence)
-    if (dash.isServerAlive(port) || runCatching { dash.ensureServer() }.isSuccess) {
+    // Each project has its own dashboard on a unique port, no filtering needed
+    if (dash.isServerAlive() || runCatching { dash.ensureServer() }.isSuccess) {
       return try {
+        // Get the project-specific port
+        val port = dash.ensureUiServerAndLoad()
         val json = fetchJson("http://127.0.0.1:$port/api/state")
         val obj  = JsonParser.parseString(json).asJsonObject
+        
         Pair(
           obj.getAsJsonArray("memories").map { parseNode(it.asJsonObject) },
           buildSummary(obj.getAsJsonObject("summary")),
@@ -425,11 +428,71 @@ class MemoryExplorerPanel(private val project: Project) : JPanel(BorderLayout())
     }
   }
 
+  private fun editSelected() {
+    val n = memoryList.selectedValue ?: return
+    ApplicationManager.getApplication().invokeLater {
+      val dlg = EditMemoryDialog(project, n)
+      if (dlg.showAndGet()) {
+        bg("Edit Memory") {
+          val args = mutableListOf<String>()
+          
+          // Update claim if changed
+          if (dlg.claim != n.claim) {
+            args.addAll(listOf("update", n.shortId, "-c", dlg.claim))
+            val r = DimRunner.run(project, args)
+            if (r.exitCode != 0) error(r.stdout.trim().ifBlank { "update claim failed" })
+            args.clear()
+          }
+          
+          // Update kind if changed
+          if (dlg.kind != n.kind) {
+            args.addAll(listOf("update", n.shortId, "-k", dlg.kind))
+            if (dlg.kind == "GUARDRAIL" && dlg.guardrailLevel != null) {
+              args.addAll(listOf("-g", dlg.guardrailLevel!!))
+            }
+            val r = DimRunner.run(project, args)
+            if (r.exitCode != 0) error(r.stdout.trim().ifBlank { "update kind failed" })
+            args.clear()
+          }
+          
+          // Update guardrail level if changed
+          if (dlg.kind == "GUARDRAIL" && dlg.guardrailLevel != n.guardrailLevel) {
+            args.addAll(listOf("update", n.shortId, "-g", dlg.guardrailLevel!!))
+            val r = DimRunner.run(project, args)
+            if (r.exitCode != 0) error(r.stdout.trim().ifBlank { "update guardrail level failed" })
+            args.clear()
+          }
+          
+          // Add new evidence
+          dlg.newEvidence.forEach { ev ->
+            args.addAll(listOf("update", n.shortId, "-e", "${ev.type}:${ev.payload}"))
+            val r = DimRunner.run(project, args)
+            if (r.exitCode != 0) error(r.stdout.trim().ifBlank { "add evidence failed" })
+            args.clear()
+          }
+          
+          // Remove evidence - we can't remove by index, so skip this for now
+          // Evidence removal would need evidence IDs which aren't available in the current structure
+          
+          AidimagNotifications.info(project, "Memory updated.")
+          AidimagStateService.getInstance(project).refreshMemoryStatus()
+          loadDataAsync()
+        }
+      }
+    }
+  }
+
   private fun verifySelected() {
-    bg("Verify") {
-      val r = DimRunner.run(project, listOf("verify"), timeoutSeconds = 300)
-      if (r.exitCode != 0) AidimagNotifications.warn(project, "Verify: ${r.stdout.trim()}")
-      else                  AidimagNotifications.info(project, "Verify complete.")
+    val n = memoryList.selectedValue ?: return
+    bg("Verify Memory") {
+      val r = DimRunner.run(project, listOf("verify", "-i", n.shortId))
+      if (r.exitCode != 0) error(r.stdout.trim().ifBlank { "verify failed" })
+      val status = when {
+        r.stdout.contains("VERIFIED") -> "VERIFIED"
+        r.stdout.contains("STALE") -> "STALE"
+        else -> "UNKNOWN"
+      }
+      AidimagNotifications.info(project, "Memory verified: $status")
       AidimagStateService.getInstance(project).refreshMemoryStatus()
       loadDataAsync()
     }
@@ -459,6 +522,8 @@ class MemoryExplorerPanel(private val project: Project) : JPanel(BorderLayout())
     val n = memoryList.selectedValue ?: return
     JPopupMenu().apply {
       add(JMenuItem(if (n.pinned) "📌 Unpin" else "📌 Pin").also { it.addActionListener { togglePin() } })
+      add(JMenuItem("✏️ Edit").also { it.addActionListener { editSelected() } })
+      add(JMenuItem("✓ Verify This").also { it.addActionListener { verifySelected() } })
       add(JMenuItem("✓ Verify All").also { it.addActionListener { doVerifyAll() } })
       addSeparator()
       add(JMenuItem("✗ Refute").also { it.addActionListener { refuteSelected() } })
@@ -484,6 +549,18 @@ class MemoryExplorerPanel(private val project: Project) : JPanel(BorderLayout())
               add("remember"); add(dlg.claim)
               add("-k"); add(dlg.kind)
               dlg.guardrailLevel?.let { add("-g"); add(it) }
+              if (dlg.paths.isNotEmpty()) {
+                add("-p")
+                addAll(dlg.paths)
+              }
+              if (dlg.symbols.isNotEmpty()) {
+                add("-s")
+                addAll(dlg.symbols)
+              }
+              dlg.evidence.forEach { ev ->
+                add("-e")
+                add("${ev.type}:${ev.payload}")
+              }
               if (dlg.pinned) add("--pin")
             }
             val r = DimRunner.run(project, args)

@@ -37,12 +37,21 @@ class AidimagDashboardService(private val project: Project) : Disposable {
     return rootPanel
   }
 
+  /** Generate unique port per project to allow multiple projects simultaneously. */
+  private fun projectPort(): Int {
+    val basePort = AidimagSettingsState.getInstance().state.uiPort
+    val basePath = project.basePath ?: return basePort
+    // Hash the project path to get a consistent port offset (0-99)
+    val hash = basePath.hashCode()
+    return basePort + (Math.abs(hash) % 100)
+  }
+
   /** True if the dim ui server is already listening on [port]. */
-  fun isServerAlive(port: Int = AidimagSettingsState.getInstance().state.uiPort): Boolean = isUiAlive(port)
+  fun isServerAlive(port: Int = projectPort()): Boolean = isUiAlive(port)
 
   /** Starts the dim ui server if not running; does NOT load any URL (used by the memory explorer). */
   fun ensureServer() {
-    val port = AidimagSettingsState.getInstance().state.uiPort
+    val port = projectPort()
     if (!isUiAlive(port)) {
       startUi(port)
       var alive = false
@@ -55,7 +64,7 @@ class AidimagDashboardService(private val project: Project) : Disposable {
   }
 
   fun ensureUiServerAndLoad(): Int {
-    val port = AidimagSettingsState.getInstance().state.uiPort
+    val port = projectPort()
     if (!isUiAlive(port)) {
       startUi(port)
       var alive = false

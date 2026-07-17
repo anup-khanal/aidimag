@@ -88,11 +88,11 @@ cd vscode-extension && vsce package        # → aidimag-vscode-<version>.vsix
 code --install-extension aidimag-vscode-<version>.vsix
 ```
 
-Current version: **0.6.0** (a prebuilt `.vsix` is included in this folder).
+Current version: **1.0.0** (build with `vsce package` or install from the marketplace).
 
 ## License
 
-Free for teams of 10 or fewer users. For larger teams or commercial use, see the [LICENSE](https://github.com/anupkhanal/aidimag/blob/main/LICENSE).
+[Elastic License 2.0](https://github.com/anupkhanal/aidimag/blob/main/LICENSE) — free for teams of 10 or fewer users. Commercial license required for larger organizations.
 
 ## Author
 

@@ -8,8 +8,10 @@ import com.intellij.openapi.wm.StatusBar
 import com.intellij.openapi.wm.StatusBarWidget
 import com.intellij.openapi.wm.StatusBarWidgetFactory
 import com.intellij.util.Consumer
+import com.intellij.openapi.util.IconLoader
 import java.awt.Component
 import java.awt.event.MouseEvent
+import javax.swing.Icon
 
 /** 🧠 memory-counts widget — click opens the dashboard. */
 class MemoryStatusWidgetFactory : StatusBarWidgetFactory {
@@ -22,26 +24,24 @@ class MemoryStatusWidgetFactory : StatusBarWidgetFactory {
 }
 
 class MemoryStatusWidget(private val project: Project) :
-  StatusBarWidget, StatusBarWidget.TextPresentation {
+  StatusBarWidget, StatusBarWidget.IconPresentation {
 
   override fun ID(): String = ID
   override fun getPresentation(): StatusBarWidget.WidgetPresentation = this
   override fun install(statusBar: StatusBar) {}
   override fun dispose() {}
 
-  override fun getText(): String {
-    val s = AidimagStateService.getInstance(project)
-    // mirror the warning-coloured VSCode item with an explicit marker
-    return if (s.hasStale) "${s.memoryText} ⚠" else s.memoryText
-  }
+  override fun getIcon(): Icon = IconLoader.getIcon("/icons/aidimag_toolwindow.svg", javaClass)
 
-  override fun getTooltipText(): String = AidimagStateService.getInstance(project).memoryTooltip
+  override fun getTooltipText(): String {
+    val s = AidimagStateService.getInstance(project)
+    val baseTooltip = s.memoryTooltip
+    return if (s.hasStale) "$baseTooltip ⚠ (stale memories detected)" else baseTooltip
+  }
 
   override fun getClickConsumer(): Consumer<MouseEvent> = Consumer {
     openDashboardInBackground(project)
   }
-
-  override fun getAlignment(): Float = Component.CENTER_ALIGNMENT
 
   companion object {
     const val ID = "AidimagMemoryStatus"

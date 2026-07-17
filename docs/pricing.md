@@ -1,6 +1,6 @@
 # Pricing
 
-aiDimag uses a **Fair Source License** model: free for small teams, with commercial licensing for larger organizations.
+aiDimag uses the **Elastic License 2.0** with a 10-user limit: free for small teams, with commercial licensing for larger organizations.
 
 ## Free Tier
 
@@ -71,7 +71,7 @@ Currently, aiDimag is **fully self-hosted**:
 - GitHub OAuth login
 - Web-based dashboard
 - Usage analytics
-- Same Fair Source licensing applies
+- Same Elastic License 2.0 terms apply
 
 ---
 
@@ -111,8 +111,7 @@ The **free tier will always be free** for teams of 10 or fewer. Commercial prici
 
 Questions about licensing or commercial use?
 
-- 📧 Email: **[your-email@example.com]** *(update this)*
-- 💬 GitHub Issues: [github.com/anupkhanal/aidimag/issues](https://github.com/anupkhanal/aidimag/issues)
+- 💬 GitHub Issues: [github.com/anupkhanal/aidimag/issues](https://github.com/anupkhanal/aidimag/issues) *(label your issue `licensing` for commercial inquiries)*
 - 📄 Full license: [LICENSE](https://github.com/anupkhanal/aidimag/blob/main/LICENSE)
 
 ---
