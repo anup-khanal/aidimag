@@ -1,12 +1,28 @@
 node_modules/
 dist/
 *.log
-.aidimag/memory.db*
 .DS_Store
 
+# IDE folders
 .idea/
+.vscode/
+.aidimag/
+
+# IntelliJ plugin (keep folder structure, ignore contents for now)
 intellij-plugin/.gradle/
 intellij-plugin/build/
+intellij-plugin/bin/
+intellij-plugin/src/
+intellij-plugin/.intellijPlatform/
+intellij-plugin/*.jar
+intellij-plugin/*.properties
+intellij-plugin/*.kts
+
+# Knowledge folder
+knowledge/
+
+# Scripts folder
+scripts/
 
 # VitePress docs build output + cache
 docs/.vitepress/dist/
