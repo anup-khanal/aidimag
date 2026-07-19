@@ -30,7 +30,7 @@ function hookBlock(): string {
   return [
     HOOK_MARKER,
     "# Re-verifies aidimag memories against the new repo state (cheap tier only).",
-    "command -v dim >/dev/null 2>&1 && dim verify --quiet || npx -y aidimag verify --quiet 2>/dev/null || true",
+    "command -v dim >/dev/null 2>&1 && dim verify --quiet || true",
     "# <<< aidimag verify hook <<<",
     "",
   ].join("\n");
@@ -40,7 +40,7 @@ function captureHookBlock(): string {
   return [
     CAPTURE_HOOK_MARKER,
     "# Mines the new commit for memory candidates (queued for review, never auto-saved).",
-    "command -v dim >/dev/null 2>&1 && dim mine --quiet || npx -y aidimag mine --quiet 2>/dev/null || true",
+    "command -v dim >/dev/null 2>&1 && dim mine --quiet || true",
     "# <<< aidimag capture hook <<<",
     "",
   ].join("\n");

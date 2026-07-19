@@ -67,8 +67,8 @@ export function registerHostCommands(program: Command): void {
 
   program
     .command("generate-context")
-    .description("Render trustworthy memory into a static context file (CLAUDE.md, .cursorrules, copilot-instructions) for non-MCP AI tools")
-    .option("-f, --format <format>", "claude | cursorrules | copilot | all", "claude")
+    .description("Render trustworthy memory into a static context file (CLAUDE.md, .cursorrules, .windsurfrules, AGENTS.md, copilot-instructions) for non-MCP AI tools")
+    .option("-f, --format <format>", "claude | cursorrules | copilot | windsurfrules | agents | all", "claude")
     .option("--auto", "Also persist generateContext.auto in .aidimag/config.json so verify/review/sync keep it fresh")
     .option("--no-auto", "Disable auto-regeneration (clears generateContext.auto)")
     .action(async (opts) => {
@@ -76,8 +76,8 @@ export function registerHostCommands(program: Command): void {
       const store = MemoryStore.open(root);
       const { generateContext } = await import("../../context/generate.js");
       const format = String(opts.format).toLowerCase();
-      if (!["claude", "cursorrules", "copilot", "all"].includes(format)) {
-        fail(`invalid --format '${opts.format}'. Use: claude | cursorrules | copilot | all`);
+      if (!["claude", "cursorrules", "copilot", "windsurfrules", "agents", "all"].includes(format)) {
+        fail(`invalid --format '${opts.format}'. Use: claude | cursorrules | copilot | windsurfrules | agents | all`);
       }
       const r = generateContext(store, root, format as never);
       console.log(`📝 Wrote ${r.files.join(", ")} — ${r.total} memories (${r.pinned} pinned).`);

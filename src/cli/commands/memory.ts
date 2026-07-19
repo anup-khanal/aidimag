@@ -18,7 +18,7 @@ export function registerMemoryCommands(program: Command): void {
   program
     .command("init")
     .description("Initialize aidimag in the current repo")
-    .action(() => {
+    .action(async () => {
       const root = findRepoRoot() ?? process.cwd();
       const dir = path.join(root, AIDIMAG_DIR);
       const fresh = !existsSync(dbPathFor(root));
@@ -90,12 +90,43 @@ This project uses aiDimag for persistent memory. Always consult memory before pr
         if (!current.includes(".aidimag/memory.db")) additions.push(".aidimag/memory.db*");
         // keep dropped knowledge docs (may contain secrets) out of git, but track the folder
         if (!current.includes(`${folder}/*`)) additions.push(`${folder}/*`, `!${folder}/.gitkeep`);
+        // generated context files (users can commit them if they want, but default is gitignored)
+        if (!current.includes("CLAUDE.md")) additions.push("CLAUDE.md");
+        if (!current.includes(".cursorrules")) additions.push(".cursorrules");
+        if (!current.includes(".windsurfrules")) additions.push(".windsurfrules");
+        if (!current.includes("AGENTS.md")) additions.push("AGENTS.md");
         if (additions.length) {
           appendFileSync(rootIgnore, `${current.endsWith("\n") || current === "" ? "" : "\n"}${additions.join("\n")}\n`);
-          console.log(`\nUpdated ${rootIgnore} (ignored memory.db + ${folder}/ drops)`);
+          console.log(`\nUpdated ${rootIgnore} (ignored memory.db + ${folder}/ drops + generated context files)`);
         }
       }
       console.log(`\nNext: \`dim bootstrap\` gives this repo an instant starter brain (surveys docs/structure/history, queues reviewable memories).`);
+      
+      // Ask if user wants to generate context files for non-MCP tools
+      const { createPrompter } = await import("../shared.js");
+      const prompter = await createPrompter();
+      console.log(`\n📝 Generate context files for non-MCP AI tools?`);
+      console.log(`   This creates CLAUDE.md, .cursorrules, .windsurfrules, AGENTS.md, and copilot-instructions.md`);
+      console.log(`   (useful for Copilot, Cursor, Windsurf, and other tools that read static files)`);
+      console.log(`   Options: y (all) | n (skip) | claude | cursorrules | copilot | windsurfrules | agents\n`);
+      const choice = (await prompter.ask("Generate now? ")).trim().toLowerCase();
+      prompter.close();
+      
+      if (choice === "y" || choice === "all" || ["claude", "cursorrules", "copilot", "windsurfrules", "agents"].includes(choice)) {
+        const { generateContext } = await import("../../context/generate.js");
+        const { writeConfig } = await import("../../config.js");
+        const format = choice === "y" || choice === "all" ? "all" : choice;
+        const store = MemoryStore.open(root);
+        const r = generateContext(store, root, format as never);
+        store.close();
+        writeConfig(root, { generateContext: { auto: true, format: format as never } });
+        console.log(`\n✅ Generated ${r.files.join(", ")} with auto-regeneration enabled.`);
+        if (r.total === 0) {
+          console.log(`   (no memories yet — files will populate after \`dim bootstrap\` or \`dim remember\`)`);
+        }
+      } else {
+        console.log(`\n   Skipped. Run \`dim generate-context --auto --format all\` later if needed.`);
+      }
     });
 
   program
@@ -130,7 +161,11 @@ This project uses aiDimag for persistent memory. Always consult memory before pr
         return { type, payload: spec.slice(idx + 1) };
       });
       const store = MemoryStore.open(process.cwd(), { create: true });
-      const entry = store.write({ kind, claim, paths: opts.path, symbols: opts.symbol, evidence, createdBy: "human", pinned: Boolean(opts.pin), guardrailLevel });
+      const entry = store.write({
+        kind, claim, paths: opts.path, symbols: opts.symbol, evidence,
+        createdBy: "human", pinned: Boolean(opts.pin), guardrailLevel,
+        trustExecutableEvidence: true,
+      });
       console.log("🧠 Got it — I'll remember:");
       printMemory(entry, true);
       if (!evidence?.length) {

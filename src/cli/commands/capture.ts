@@ -6,7 +6,7 @@ import type { Command } from "commander";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { MemoryStore, findRepoRoot } from "../../db/store.js";
-import { mineCommits } from "../../capture/commit-miner.js";
+import { mineCommits, describeMineResult } from "../../capture/commit-miner.js";
 import { fail, autoSync, maybeRegenerateContext, printProposal, createPrompter } from "../shared.js";
 
 /**
@@ -166,13 +166,13 @@ export function registerCaptureCommands(program: Command): void {
         store.close();
         return;
       }
-      console.log(
-        `Scanned ${res.scanned} commit(s)${llmProvider ? ` with ${llmProvider}` : ""}: ${res.proposed.length} proposal(s) queued` +
-          (res.skippedDuplicates ? `, ${res.skippedDuplicates} duplicate(s) skipped` : "") +
-          (res.lastSha ? ` (cursor @ ${res.lastSha.slice(0, 8)})` : "")
-      );
+      if (res.noCommits || res.noNewCommits) {
+        console.log(describeMineResult(res, { llmProvider, llmRequested: Boolean(opts.llm) }));
+        store.close();
+        return;
+      }
+      console.log(describeMineResult(res, { llmProvider, llmRequested: Boolean(opts.llm) }));
       for (const p of res.proposed) printProposal(p);
-      if (res.proposed.length) console.log(`\nReview with \`dim review\`.`);
       store.close();
     });
 
@@ -325,6 +325,28 @@ export function registerCaptureCommands(program: Command): void {
       if (effective === "approve" || effective === "reject") await autoSync(store);
       await maybeRegenerateContext(store);
       store.close();
+    });
+
+  const proposalsCmd = program.command("proposals").description("Proposal housekeeping");
+  proposalsCmd
+    .command("gc")
+    .description("Remove resolved (approved/rejected) proposal rows and tombstone for team sync")
+    .option("--dry-run", "Report how many rows would be removed without deleting")
+    .action(async (opts) => {
+      const store = MemoryStore.open();
+      try {
+        const { removed } = store.gcResolvedProposals({ dryRun: Boolean(opts.dryRun) });
+        if (removed === 0) {
+          console.log("No resolved proposals to remove.");
+        } else if (opts.dryRun) {
+          console.log(`${removed} resolved proposal row(s) would be removed. Run without --dry-run to apply.`);
+        } else {
+          console.log(`Removed ${removed} resolved proposal row(s). Run \`dim sync\` to propagate deletions.`);
+          await autoSync(store);
+        }
+      } finally {
+        store.close();
+      }
     });
 }
 

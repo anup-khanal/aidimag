@@ -10,13 +10,13 @@
  *   ~/.aidimag/credentials.json { [server]: token } — never in the repo
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { debugLog } from "../debug.js";
 import type { MemoryStore } from "../db/store.js";
 import type { MemoryEntry, Proposal } from "../types.js";
-import type { SyncItem, EventItem } from "./server.js";
+import type { SyncItem, EventItem, RemoteSnapshot } from "./server.js";
 
 export interface CloudConfig {
   server: string;
@@ -25,6 +25,11 @@ export interface CloudConfig {
 
 const CURSOR_KEY = "sync_pull_cursor";
 const LAST_PUSH_KEY = "sync_last_push_at";
+
+/** Scope sync cursors per brain so linking a new cloud project triggers a fresh upload. */
+export function syncMetaKey(base: string, brain: string): string {
+  return `${base}:${brain}`;
+}
 
 // ---------------------------------------------------------------- config & credentials
 
@@ -77,6 +82,7 @@ export function saveToken(server: string, token: string): void {
   const creds = existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : {};
   creds[server] = token;
   writeFileSync(p, JSON.stringify(creds, null, 2) + "\n", { mode: 0o600 });
+  try { chmodSync(p, 0o600); } catch { /* best-effort on Windows */ }
 }
 
 export function removeToken(server: string): boolean {
@@ -101,7 +107,7 @@ export interface DeviceStart {
 
 /** Begin a device-code login: server hands back a user code + approval URL. */
 export async function startDeviceLogin(server: string): Promise<DeviceStart> {
-  const res = await fetch(`${server}/v1/auth/device`, { method: "POST" });
+  const res = await cloudFetch(server, `${server}/v1/auth/device`, { method: "POST" });
   if (!res.ok) {
     throw new Error(
       res.status === 404
@@ -118,7 +124,7 @@ export async function pollDeviceLogin(server: string, start: DeviceStart): Promi
   for (;;) {
     if (Date.now() > deadline) throw new Error("login timed out — run `dim login` again");
     await new Promise((r) => setTimeout(r, start.interval * 1000));
-    const res = await fetch(`${server}/v1/auth/token`, {
+    const res = await cloudFetch(server, `${server}/v1/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ device_code: start.device_code }),
@@ -135,15 +141,57 @@ export async function pollDeviceLogin(server: string, start: DeviceStart): Promi
 
 export interface SyncResult {
   pushed: number;
+  /** Memory rows accepted by the server this run (excludes proposals/tombstones). */
+  memoriesPushed: number;
+  /** Memory rows in the push batch this run (excludes proposals/tombstones). */
+  memoriesQueued: number;
   pulled: number;
   applied: number;
   skippedOlder: number;
   /** lifecycle events shipped to the server (consensus input) */
   eventsPushed: number;
+  /** Local rows considered for push this run. */
+  pushQueued: number;
+  /** Local memories exist but incremental push sent nothing (remote may already have data). */
+  pushSkipped: boolean;
+  /** Remote brain is empty while local has memories — user was not asked or declined upload. */
+  needsFullUploadConfirm?: boolean;
+}
+
+export interface SyncOptions {
+  /** Push every local memory/proposal, not just rows changed since the last push. */
+  full?: boolean;
+  /** Called when local has memories missing on the remote; return true to run a full upload. */
+  confirmFullUpload?: (localMemoryCount: number, remoteMemoryCount: number | null) => Promise<boolean>;
+}
+
+function formatFetchError(server: string, err: unknown): Error {
+  if (err instanceof TypeError && err.message === "fetch failed") {
+    const cause = err.cause as NodeJS.ErrnoException | undefined;
+    const detail = cause?.code ?? cause?.message ?? "network error";
+    if (detail === "ECONNREFUSED" || /ECONNREFUSED/i.test(String(detail))) {
+      return new Error(
+        `cannot reach sync server at ${server} (connection refused). ` +
+          `For aidimag-cloud dev, run \`npm run dev\` in aidimag-cloud and link \`http://localhost:3000\`. ` +
+          `For self-hosted sync, run \`dim serve\` (default port 8787). Check \`dim cloud status\`.`
+      );
+    }
+    return new Error(`cannot reach sync server at ${server}: ${detail}`);
+  }
+  if (err instanceof Error) return err;
+  return new Error(String(err));
+}
+
+async function cloudFetch(server: string, url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    throw formatFetchError(server, err);
+  }
 }
 
 async function api<T>(cfg: CloudConfig, token: string, pathAndQuery: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${cfg.server}${pathAndQuery}`, {
+  const res = await cloudFetch(cfg.server, `${cfg.server}${pathAndQuery}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -155,14 +203,77 @@ async function api<T>(cfg: CloudConfig, token: string, pathAndQuery: string, ini
   return (await res.json()) as T;
 }
 
-export async function sync(store: MemoryStore, repoRoot: string): Promise<SyncResult> {
+export type { RemoteSnapshot, RemoteSnapshotItem } from "./server.js";
+
+export interface FetchRemoteSnapshotOpts {
+  id?: string;
+  tbl?: "memories" | "proposals";
+  limit?: number;
+  /** When false, return counts/seq only. Default true unless fetching by id. */
+  list?: boolean;
+  full?: boolean;
+  /** When listing proposals, include resolved (APPROVED/REJECTED) rows. Default: pending only. */
+  all?: boolean;
+}
+
+/** Read the server's current latest-state snapshot without pulling into local DB. */
+export async function fetchRemoteSnapshot(
+  repoRoot: string,
+  opts: FetchRemoteSnapshotOpts = {}
+): Promise<RemoteSnapshot> {
   const cfg = readCloudConfig(repoRoot);
   if (!cfg) throw new Error("repo is not cloud-linked. Run `dim cloud link --server <url> --brain <name> --token <token>` first.");
   const token = getToken(cfg.server);
   if (!token) throw new Error(`no credentials for ${cfg.server}. Run \`dim cloud link\` with --token, or set AIDIMAG_API_KEY.`);
 
+  const q = new URLSearchParams({ brain: cfg.brain });
+  if (opts.id) q.set("id", opts.id);
+  if (opts.tbl) q.set("tbl", opts.tbl);
+  if (opts.limit != null) q.set("limit", String(opts.limit));
+  if (opts.list === false) q.set("list", "0");
+  if (opts.full) q.set("full", "1");
+  if (opts.all) q.set("all", "1");
+
+  return api<RemoteSnapshot>(cfg, token, `/v1/snapshot?${q.toString()}`);
+}
+
+/** Remote memory count for this brain, or null if the server could not be queried. */
+async function getRemoteMemoryCount(cfg: CloudConfig, token: string): Promise<number | null> {
+  try {
+    const remote = await api<RemoteSnapshot>(
+      cfg,
+      token,
+      `/v1/snapshot?brain=${encodeURIComponent(cfg.brain)}&list=0`
+    );
+    return remote.counts.memories;
+  } catch (err) {
+    if (!(err instanceof Error && /HTTP 404/.test(err.message))) throw err;
+    // Older servers without /v1/snapshot — infer from pull.
+    try {
+      const pull = await api<{ items: SyncItem[] }>(
+        cfg,
+        token,
+        `/v1/pull?brain=${encodeURIComponent(cfg.brain)}&since=0`
+      );
+      return pull.items.filter((i) => i.tbl === "memories" && !i.deleted).length;
+    } catch {
+      return null;
+    }
+  }
+}
+
+export async function sync(store: MemoryStore, repoRoot: string, opts: SyncOptions = {}): Promise<SyncResult> {
+  const cfg = readCloudConfig(repoRoot);
+  if (!cfg) throw new Error("repo is not cloud-linked. Run `dim cloud link --server <url> --brain <name> --token <token>` first.");
+  const token = getToken(cfg.server);
+  if (!token) throw new Error(`no credentials for ${cfg.server}. Run \`dim cloud link\` with --token, or set AIDIMAG_API_KEY.`);
+
+  const cursorKey = syncMetaKey(CURSOR_KEY, cfg.brain);
+  const lastPushKey = syncMetaKey(LAST_PUSH_KEY, cfg.brain);
+  const localMemoryCount = store.statusSummary().total;
+
   // ---- push
-  const lastPush = store.getMeta(LAST_PUSH_KEY);
+  const lastPush = opts.full ? null : store.getMeta(lastPushKey);
   const changes = store.changedSince(lastPush);
   const items: SyncItem[] = [
     ...changes.memories.map((m) => ({
@@ -187,15 +298,61 @@ export async function sync(store: MemoryStore, repoRoot: string): Promise<SyncRe
       payload: null,
     })),
   ];
-  let pushed = 0;
-  if (items.length > 0) {
-    const r = await api<{ accepted: number }>(cfg, token, `/v1/push?brain=${encodeURIComponent(cfg.brain)}`, {
-      method: "POST",
-      body: JSON.stringify({ items }),
-    });
-    pushed = r.accepted;
+
+  let uploadGapDetected = false;
+  let remoteMemoryCount: number | null = null;
+
+  // Incremental push is empty but local still has memories not reflected on the remote.
+  if (!opts.full && items.length === 0 && localMemoryCount > 0) {
+    remoteMemoryCount = await getRemoteMemoryCount(cfg, token);
+    const missingOnRemote = remoteMemoryCount === null || remoteMemoryCount < localMemoryCount;
+    if (missingOnRemote) {
+      uploadGapDetected = true;
+      if (opts.confirmFullUpload) {
+        const ok = await opts.confirmFullUpload(localMemoryCount, remoteMemoryCount);
+        if (ok) {
+          store.setMeta(cursorKey, "0");
+          return sync(store, repoRoot, { full: true });
+        }
+      }
+    }
   }
-  store.setMeta(LAST_PUSH_KEY, new Date().toISOString());
+
+  let pushed = 0;
+  let memoriesPushed = 0;
+  const pushQueued = items.length;
+  const memoriesQueued = items.filter((it) => it.tbl === "memories" && !it.deleted).length;
+  if (items.length > 0) {
+    const r = await api<{ accepted: number; memoriesAccepted?: number }>(
+      cfg,
+      token,
+      `/v1/push?brain=${encodeURIComponent(cfg.brain)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ items }),
+      }
+    );
+    pushed = r.accepted;
+    memoriesPushed =
+      r.memoriesAccepted ??
+      (pushed === 0 ? 0 : pushed === pushQueued ? memoriesQueued : Math.min(memoriesQueued, pushed));
+  }
+  if (pushQueued > 0) {
+    const latestItemAt = items.reduce(
+      (max, it) => (!max || it.updatedAt > max ? it.updatedAt : max),
+      ""
+    );
+    store.setMeta(lastPushKey, latestItemAt || new Date().toISOString());
+  }
+
+  // Warn only when incremental sent nothing and remote still appears to be missing local data.
+  const pushSkipped =
+    !opts.full &&
+    pushQueued === 0 &&
+    localMemoryCount > 0 &&
+    !uploadGapDetected &&
+    (remoteMemoryCount === null || remoteMemoryCount < localMemoryCount);
+  const needsFullUploadConfirm = uploadGapDetected && pushQueued === 0 && !opts.full;
 
   // ---- push events (append-only lifecycle log → server-side consensus)
   let eventsPushed = 0;
@@ -226,7 +383,7 @@ export async function sync(store: MemoryStore, repoRoot: string): Promise<SyncRe
   }
 
   // ---- pull
-  const cursor = parseInt(store.getMeta(CURSOR_KEY) ?? "0", 10);
+  const cursor = parseInt(store.getMeta(cursorKey) ?? "0", 10);
   const pullRes = await api<{ items: SyncItem[]; seq: number }>(
     cfg,
     token,
@@ -270,9 +427,20 @@ export async function sync(store: MemoryStore, repoRoot: string): Promise<SyncRe
       applied++;
     }
   }
-  store.setMeta(CURSOR_KEY, String(pullRes.seq));
+  store.setMeta(cursorKey, String(pullRes.seq));
 
-  return { pushed, pulled: pullRes.items.length, applied, skippedOlder, eventsPushed };
+  return {
+    pushed,
+    memoriesPushed,
+    memoriesQueued,
+    pulled: pullRes.items.length,
+    applied,
+    skippedOlder,
+    eventsPushed,
+    pushQueued,
+    pushSkipped,
+    ...(needsFullUploadConfirm ? { needsFullUploadConfirm: true } : {}),
+  };
 }
 
 // ---------------------------------------------------------------- auto-sync (debounced)

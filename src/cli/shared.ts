@@ -29,7 +29,7 @@ export async function autoSync(store: MemoryStore): Promise<void> {
   if (!root) return;
   const { maybeAutoSync } = await import("../sync/client.js");
   const r = await maybeAutoSync(store, root);
-  if (r) console.log(`(auto-synced: pushed ${r.pushed}, pulled ${r.pulled}, events ${r.eventsPushed})`);
+  if (r) console.log(`(auto-synced: sent ${r.memoriesPushed} memories, pulled ${r.pulled}, events ${r.eventsPushed})`);
 }
 
 /**
@@ -176,8 +176,11 @@ export async function createPrompter(
 
 /** Open a URL in the default browser, best-effort (matches `dim login` / `dim ui`). */
 export async function openBrowser(url: string): Promise<void> {
-  const { exec } = await import("node:child_process");
-  const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-  exec(`${opener} "${url}"`);
+  const { execFile } = await import("node:child_process");
+  const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  execFile(opener, args, (err) => {
+    if (err) process.stderr.write(`Could not open browser: ${err.message}\n`);
+  });
 }
 

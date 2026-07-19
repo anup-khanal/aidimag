@@ -1,131 +1,111 @@
 # Pricing
 
-aiDimag uses the **Elastic License 2.0** with a 10-user limit: free for small teams, with commercial licensing for larger organizations.
+Simple licensing: **self-host for free** on small teams, or **go commercial** when you need managed cloud sync or exceed the OSS user limit.
 
-## Free Tier
+<p class="pricing-lead">Full product on your machines for small teams — cloud adds managed sync and zero server ops.</p>
 
-**Free forever for teams of 10 or fewer users**
+<div class="pricing-grid">
 
-Perfect for:
-- 👤 Individual developers
-- 🏠 Hobby projects
-- 🚀 Startups (≤10 people)
-- 🎓 Academic/research use
-- 💡 Open source projects
+<div class="pricing-card">
 
-### What's included:
-- ✅ Full CLI (`dim` command)
-- ✅ MCP server integration (Claude Code, Cursor, Copilot)
-- ✅ Web dashboard (`dim ui`)
-- ✅ VSCode extension
-- ✅ IntelliJ plugin
-- ✅ Self-hosted team sync
-- ✅ All verification features
-- ✅ Knowledge inbox
-- ✅ Ticket integration
-- ✅ Guardrails & skills
-- ✅ Everything in the product
+### Self-hosted · Free
 
-**No feature restrictions. No time limits. No credit card required.**
+<p class="pricing-price"><strong>$0</strong> <span>forever</span></p>
+<p class="pricing-sub">Elastic License 2.0 · teams of 10 or fewer users</p>
+
+<p class="pricing-features-label">Included</p>
+<ul class="pricing-features">
+<li>Full CLI, MCP server, and IDE extensions</li>
+<li>Local <code>memory.db</code> — agents stay fast</li>
+<li>Verified memory, guardrails, skills, tickets</li>
+<li>Self-hosted team sync (<code>dim serve</code>)</li>
+<li>Local web dashboard (<code>dim ui</code>)</li>
+<li>No credit card · no time limit</li>
+</ul>
+
+<p class="pricing-features-label">Not included</p>
+<ul class="pricing-features pricing-features-no">
+<li>Managed hosted sync (24/7)</li>
+<li>Cloud accounts, API keys, and billing portal</li>
+<li>Device login via cloud approve flow</li>
+<li>Zero server ops — you run and maintain sync</li>
+<li>Teams over 10 users without a commercial license</li>
+</ul>
+
+<p class="pricing-cta"><a class="pricing-button" href="/aidimag/getting-started">Get started</a></p>
+
+</div>
+
+<div class="pricing-card pricing-card-highlight">
+
+<p class="pricing-badge">Managed sync</p>
+
+### aiDimag Cloud · Commercial
+
+<p class="pricing-price"><strong>Hosted</strong> <span>sync &amp; accounts</span></p>
+<p class="pricing-sub">For teams who want always-on sync without running a server</p>
+
+<ul class="pricing-features">
+<li>Everything in OSS — same local-first model</li>
+<li>Managed sync across laptops, CI, and teammates</li>
+<li>Cloud accounts, API keys, and billing portal</li>
+<li>Device login and team onboarding</li>
+<li>No <code>dim serve</code> to run or maintain</li>
+<li>Works with any MCP client</li>
+</ul>
+
+<p class="pricing-cta"><a class="pricing-button pricing-button-primary" href="https://cloud.aidimag.com" target="_blank" rel="noopener noreferrer">Explore aiDimag Cloud</a></p>
+
+</div>
+
+</div>
 
 ---
 
-## Commercial License
+## Commercial OSS license
 
-**Required for teams of 11+ users**
+Organizations with **more than 10 users** (anyone running `dim`, using MCP, or the dashboard in your company) need a **commercial license** under the Elastic License 2.0 — even if you self-host.
 
-For organizations that exceed the 10-user limit, a commercial license is required.
-
-### Pricing: **Coming Soon**
-
-We're currently finalizing commercial pricing tiers. Expected options:
-
-- **Team Plan** - For growing teams (11-50 users)
-- **Business Plan** - For established companies (51-200 users)
-- **Enterprise Plan** - For large organizations (200+ users)
-  - Custom pricing
-  - Priority support
-  - SLA guarantees
-  - Dedicated account manager
-
-### What counts as a "user"?
-
-A user is anyone who:
-- Runs `dim` commands in a repo with aiDimag
-- Uses an AI agent connected to the aiDimag MCP server
-- Accesses the dashboard or IDE extensions
-
-**Note:** "Users per entity" includes all employees across your organization and its affiliates, not just active users in a single repo.
-
----
-
-## Self-Hosted vs. Cloud (Future)
-
-Currently, aiDimag is **fully self-hosted**:
-- Your data stays on your machines
-- No external dependencies (except optional OpenAI/Ollama for embeddings)
-- Team sync runs on your own server
-
-**Cloud-hosted option coming in 2026:**
-- Managed sync server (no self-hosting required)
-- GitHub OAuth login
-- Web-based dashboard
-- Usage analytics
-- Same Elastic License 2.0 terms apply
+We’re not publishing tier tables here. [Open a GitHub issue](https://github.com/anupkhanal/aidimag/issues) with the `licensing` label and we’ll help you get compliant.
 
 ---
 
 ## FAQ
 
-### Do I need a license to try it?
+### What counts as a user?
 
-**No.** Download and use it freely. The 10-user limit only applies when you have 11+ people using it in your organization.
+Anyone who runs `dim`, connects an agent via MCP, or uses the dashboard or IDE extensions in your organization (including affiliates).
 
-### What if I'm not sure about my user count?
+### Does free include the full product?
 
-If you're under 10 users, you're automatically compliant. If you're close to or over the limit, [contact us](#contact) and we'll help you figure it out.
+Yes — every OSS feature (CLI, MCP, verification, guardrails, self-hosted sync, local dashboard). What free does **not** include is **managed cloud sync**, the **cloud account portal**, and use **above 10 users** without a commercial license.
+
+### Self-host vs cloud?
+
+| | Self-hosted (free) | aiDimag Cloud |
+|---|---|---|
+| **Memory** | Local SQLite on each machine | Same — agents still read local SQLite |
+| **Sync** | You run `dim serve` | We host sync 24/7 |
+| **Ops** | Your server, your backups | Accounts, keys, billing, dashboard |
+| **Best for** | ≤10 users, full control | Teams wanting managed sync |
 
 ### Can I use it in a commercial product?
 
-**Yes**, as long as your team is ≤10 users. If your company has more than 10 people (even if only 5 use aiDimag), you need a commercial license.
-
-### What happens if I exceed 10 users without a license?
-
-The software will continue to work, but you'll be in violation of the license terms. We trust you to do the right thing. When you're ready, [contact us](#contact) to get licensed.
+Yes, if your organization is within the free user limit. Above 10 users, you need a commercial license regardless of self-host vs cloud.
 
 ### Is the source code available?
 
-**Yes!** The full source is on [GitHub](https://github.com/anupkhanal/aidimag). You can read it, audit it, modify it, and even fork it (subject to the Elastic License 2.0 terms). However, you cannot offer it as a managed service to third parties.
-
-### Can I contribute?
-
-**Yes!** We welcome contributions via pull requests on [GitHub](https://github.com/anupkhanal/aidimag). By contributing, you agree that your contributions will be licensed under the Elastic License 2.0 and become part of the official distribution.
-
-### Will pricing change?
-
-The **free tier will always be free** for teams of 10 or fewer. Commercial pricing may be adjusted as we add new features, but existing customers will be grandfathered at their original rates.
+Yes — [github.com/anupkhanal/aidimag](https://github.com/anupkhanal/aidimag). Read, audit, and contribute under the Elastic License 2.0.
 
 ---
 
-## Contact
-
-Questions about licensing or commercial use?
-
-- 💬 GitHub Issues: [github.com/anupkhanal/aidimag/issues](https://github.com/anupkhanal/aidimag/issues) *(label your issue `licensing` for commercial inquiries)*
-- 📄 Full license: [LICENSE](https://github.com/anupkhanal/aidimag/blob/main/LICENSE)
-
----
-
-## License Summary
+## License summary
 
 aiDimag is licensed under the **Elastic License 2.0** with a 10-user Additional Use Grant.
 
-**Key terms:**
-- ✅ Use freely (up to 10 users per organization)
-- ✅ Source code is fully available
-- ✅ Modify and create derivative works
-- ✅ Distribute (with restrictions)
-- ❌ **Cannot offer as a managed/hosted service to third parties**
-- ⚠️ Teams of 11+ users require a commercial license
+- Use freely for up to 10 users per organization
+- Full source available; modify and distribute with license terms
+- Cannot offer aiDimag as a managed/hosted service to third parties (use aiDimag Cloud for that)
+- 11+ users require a commercial license
 
 [Read the full license →](https://github.com/anupkhanal/aidimag/blob/main/LICENSE)

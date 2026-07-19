@@ -31,6 +31,10 @@ export interface MineResult {
   proposed: Proposal[];
   skippedDuplicates: number;
   lastSha: string | null;
+  /** True when the repo is a git repo but has no commits yet (HEAD does not exist). */
+  noCommits?: boolean;
+  /** True when incremental mining found no commits newer than the stored cursor. */
+  noNewCommits?: boolean;
 }
 
 /**
@@ -98,7 +102,22 @@ function git(repoRoot: string, args: string[]): string {
   return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 }
 
+/** False when the repo is initialized but has no commits yet (no HEAD). */
+export function hasGitCommits(repoRoot: string): boolean {
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function readCommits(repoRoot: string, sinceSha: string | null, maxCommits = 500): MinedCommit[] {
+  if (!hasGitCommits(repoRoot)) return [];
   const range = sinceSha ? `${sinceSha}..HEAD` : "HEAD";
   let raw: string;
   try {
@@ -197,8 +216,21 @@ export function mineCommits(
   repoRoot: string,
   opts: { maxCommits?: number; full?: boolean } = {}
 ): MineResult {
+  if (!hasGitCommits(repoRoot)) {
+    return { scanned: 0, proposed: [], skippedDuplicates: 0, lastSha: null, noCommits: true };
+  }
   const sinceSha = opts.full ? null : store.getMeta(MINER_CURSOR_KEY);
   const commits = readCommits(repoRoot, sinceSha, opts.maxCommits ?? 500);
+
+  if (commits.length === 0 && sinceSha) {
+    return {
+      scanned: 0,
+      proposed: [],
+      skippedDuplicates: 0,
+      lastSha: sinceSha,
+      noNewCommits: true,
+    };
+  }
 
   // T1 ticket extraction (offline): per-commit from the message; for
   // incremental mining (the post-commit hook path) the current branch name is
@@ -290,8 +322,22 @@ export async function mineCommitsLlm(
     return { ...r, provider: null };
   }
 
+  if (!hasGitCommits(repoRoot)) {
+    return { scanned: 0, proposed: [], skippedDuplicates: 0, lastSha: null, noCommits: true, provider: null };
+  }
+
   const sinceSha = opts.full ? null : store.getMeta(MINER_CURSOR_KEY);
   const commits = readCommits(repoRoot, sinceSha, Math.min(opts.maxCommits ?? LLM_MAX_COMMITS, LLM_MAX_COMMITS));
+  if (commits.length === 0 && sinceSha) {
+    return {
+      scanned: 0,
+      proposed: [],
+      skippedDuplicates: 0,
+      lastSha: sinceSha,
+      noNewCommits: true,
+      provider: `${provider.name}/${provider.model}`,
+    };
+  }
   const ticketPattern = readTicketsConfig(repoRoot).pattern ?? DEFAULT_TICKET_PATTERN;
 
   const proposed: Proposal[] = [];
@@ -342,5 +388,37 @@ export async function mineCommitsLlm(
     lastSha: head ?? null,
     provider: `${provider.name}/${provider.model}`,
   };
+}
+
+/** Human-readable summary of a mine run (CLI + MCP). */
+export function describeMineResult(
+  r: MineResult,
+  opts: { llmProvider?: string | null; llmRequested?: boolean } = {}
+): string {
+  if (r.noCommits) return "No git commits yet — make an initial commit before mining history.";
+  if (r.noNewCommits) {
+    return (
+      `No new commits since the last mine (cursor @ ${r.lastSha?.slice(0, 8) ?? "?"}). ` +
+      "Use full=true (or `dim mine --full`) to rescan all history."
+    );
+  }
+  const llmNote =
+    opts.llmRequested && !opts.llmProvider
+      ? " (no LLM provider — fell back to keyword mining; run Ollama or set OPENAI_API_KEY for llm=true)"
+      : opts.llmProvider
+        ? ` with ${opts.llmProvider}`
+        : "";
+  let msg =
+    `Scanned ${r.scanned} commit(s)${llmNote}: ${r.proposed.length} proposal(s) queued` +
+    (r.skippedDuplicates ? `, ${r.skippedDuplicates} duplicate(s) skipped` : "") +
+    (r.lastSha ? ` (cursor @ ${r.lastSha.slice(0, 8)})` : "");
+  if (r.proposed.length === 0 && r.scanned > 0) {
+    msg +=
+      "\nNone matched memory-worthy signals — try descriptive commit messages" +
+      (opts.llmRequested ? "." : " or enable llm=true / `dim mine --llm`.");
+  } else if (r.proposed.length > 0) {
+    msg += "\nReview with `dim review`.";
+  }
+  return msg;
 }
 

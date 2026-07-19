@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import type { GuardrailLevel } from "./types.js";
 
-export type ContextFormat = "claude" | "cursorrules" | "copilot" | "all";
+export type ContextFormat = "claude" | "cursorrules" | "copilot" | "windsurfrules" | "agents" | "all";
 
 export interface GenerateContextConfig {
   /** which file(s) to write — defaults to "claude" */
@@ -63,11 +63,18 @@ export interface ResolvedKnowledgeConfig {
   chunkBytes: number;
 }
 
+/** Reject repo-relative knowledge inbox paths that escape or touch sensitive dirs. */
+function safeKnowledgeFolder(folder: string): string {
+  const normalized = folder.replace(/\\/g, "/").replace(/^\/+/, "").trim();
+  if (!normalized || normalized.includes("..") || normalized.startsWith(".aidimag")) return "knowledge";
+  return normalized;
+}
+
 /** Knowledge config with every field filled in from defaults. */
 export function resolveKnowledgeConfig(repoRoot: string): ResolvedKnowledgeConfig {
   const k = readConfig(repoRoot).knowledge ?? {};
   return {
-    folder: k.folder ?? "knowledge",
+    folder: safeKnowledgeFolder(k.folder ?? "knowledge"),
     summarizer: k.summarizer ?? "auto",
     requireReview: k.requireReview ?? true,
     backup: k.backup ?? true,

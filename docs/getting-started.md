@@ -104,12 +104,17 @@ dim mine --llm --full  # LLM reads commits + diffs — slower, much higher quali
 If you use an MCP-capable agent, wire up the server so it can read and write memory live.
 See **[MCP integration](/mcp)** for per-tool instructions (Claude Code, Cursor, Copilot).
 
-If your tool just reads a context file, generate one instead:
+If your tool just reads a context file (Copilot, Cursor, Windsurf, etc.), generate one:
 
 ```sh
-dim generate-context          # writes CLAUDE.md
-dim generate-context -f all   # CLAUDE.md + .cursorrules + copilot-instructions
+dim generate-context --format all --auto
 ```
+
+This writes `CLAUDE.md`, `.cursorrules`, `.windsurfrules`, `AGENTS.md`, and `.github/copilot-instructions.md` with all verified/unverified memories. The `--auto` flag enables **automatic regeneration** — these files will stay fresh after `dim review`, `dim verify`, `dim sync`, etc.
+
+::: warning Auto-regeneration is opt-in
+Without `--auto`, you must manually run `dim generate-context` after approving new memories. Use `--auto` to keep context files in sync automatically.
+:::
 
 ## Set up semantic search (optional)
 
@@ -136,7 +141,8 @@ dim recall db access
 ```
 
 If `dim status` shows your memory, you're set. Continue to the
-**[5-minute quick start](/quickstart)**.
+**[5-minute quick start](/quickstart)** or **[Cloud sync TLDR](/cloud-quickstart)** if you're
+using aiDimag Cloud.
 
 ## If something misbehaves
 

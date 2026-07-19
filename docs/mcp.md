@@ -57,6 +57,7 @@ tool doesn't speak MCP, use [generated context files](/guides/generate-context) 
 | `memory_verify` | Re-run cheap evidence and update statuses. Evidence commands that arrived via team sync and weren't approved on this machine are **skipped, never executed** — the human approves them once with `dim verify --trust` |
 | `memory_refute` | Mark a memory false when it no longer holds |
 | `memory_status` | Counts by status and kind |
+| `commits_mine` | Mine git history for memory proposals (like `dim mine`; optional `full`, `llm`, `max`) |
 | `memory_critique` | Review work against verified memory + guardrails (a "second critic") |
 | `proposals_pending` | List proposals awaiting review |
 | `knowledge_pending` | List documents waiting in the knowledge inbox to be summarized |

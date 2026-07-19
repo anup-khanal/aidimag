@@ -41,7 +41,7 @@ test("write → get → search round-trip", () => {
   }
 });
 
-test("proposals: dedupe, approve (with pin override), reject", () => {
+test("proposals: dedupe, approve (with pin override), reject, gc", () => {
   const { store, dir } = tempStore();
   try {
     const input = { kind: "GOTCHA" as const, claim: "Retries must be idempotent in src/queue", source: "test" };
@@ -51,13 +51,23 @@ test("proposals: dedupe, approve (with pin override), reject", () => {
 
     const m = store.approveProposal(p1!.id, { pinned: false });
     assert.equal(m.pinned, false);
-    assert.equal(store.getProposal(p1!.id)?.status, "APPROVED");
+    assert.equal(store.getProposal(p1!.id), null);
+    assert.ok(store.isTombstoned(p1!.id, "proposals"));
 
     const p2 = store.propose({ ...input, claim: "Another claim entirely" });
     store.rejectProposal(p2!.id);
-    assert.equal(store.getProposal(p2!.id)?.status, "REJECTED");
-    // rejecting twice is an error
+    assert.equal(store.getProposal(p2!.id), null);
+    assert.ok(store.isTombstoned(p2!.id, "proposals"));
+    assert.ok(store.listRejectedClaims().includes("Another claim entirely"));
+    // rejecting twice is an error (row already gone)
     assert.throws(() => store.rejectProposal(p2!.id));
+
+    const legacy = store.propose({ kind: "GOTCHA", claim: "Legacy resolved row", source: "test" });
+    (store as unknown as { db: { prepare: (sql: string) => { run: (...args: unknown[]) => unknown } } }).db
+      .prepare("UPDATE proposals SET status = 'APPROVED' WHERE id = ?")
+      .run(legacy!.id);
+    assert.equal(store.gcResolvedProposals().removed, 1);
+    assert.equal(store.getProposal(legacy!.id), null);
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -106,6 +116,7 @@ test("evidence trust gate: local writes trusted, synced-in evidence is not", () 
       kind: "INVARIANT",
       claim: "Local memory with a check",
       evidence: [{ type: "STATIC_CHECK", payload: "echo local" }],
+      trustExecutableEvidence: true,
     });
     assert.ok(store.isEvidencePayloadTrusted("echo local"));
 

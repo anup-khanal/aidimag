@@ -119,7 +119,7 @@ export function scoreProposal(
 export function triagePending(store: MemoryStore, limit = 1000): TriagedProposal[] {
   const pending = store.listProposals("PENDING", limit);
   if (!pending.length) return [];
-  const rejectedClaims = store.listProposals("REJECTED", 500).map((p) => p.claim);
+  const rejectedClaims = store.listRejectedClaims(500);
   const activeClaims = store
     .list(1000)
     .filter((m) => m.status !== "REFUTED")

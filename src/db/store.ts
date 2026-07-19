@@ -277,9 +277,9 @@ export class MemoryStore {
       );
       for (const ev of input.evidence ?? []) {
         evStmt.run(randomUUID(), id, ev.type, ev.payload);
-        // locally-authored evidence is trusted to execute (you or your agent
-        // wrote it on this machine); synced-in evidence is NOT auto-trusted.
-        this.trustEvidencePayload(ev.payload);
+        if (input.trustExecutableEvidence) {
+          this.trustEvidencePayload(ev.payload);
+        }
       }
       this.recordEvent("memory_created", id, {
         kind: input.kind,
@@ -296,8 +296,8 @@ export class MemoryStore {
   // Executable evidence (STATIC_CHECK / TEST_RESULT / EXEC_TRACE) runs shell
   // commands on THIS machine — including automatically via git hooks. A synced
   // teammate's (or attacker's) memory must not become remote code execution:
-  // only payloads approved on this machine ever execute. Local writes and
-  // local proposal approvals auto-trust; `dim verify --trust` reviews the rest.
+  // only payloads explicitly trusted on this machine ever execute.
+  // CLI human writes and approved proposals opt in; agents/UI use proposals or `dim verify --trust`.
 
   private static evTrustKey(payload: string): string {
     return `evtrust:${createHash("sha256").update(payload).digest("hex").slice(0, 16)}`;
@@ -585,9 +585,8 @@ export class MemoryStore {
   }
 
   /**
-   * Approve a proposal: creates the real MemoryEntry and marks the proposal APPROVED.
-   * `overrides.claim` lets the reviewer reword the claim before it becomes memory
-   * (conversational review) — provenance still points at the original proposal.
+   * Approve a proposal: creates the verified memory and removes the proposal row
+   * (tombstoned for team sync). `overrides.claim` lets the reviewer reword before promote.
    */
   approveProposal(id: string, overrides?: { claim?: string; pinned?: boolean }): MemoryEntry {
     const p = this.findProposalByPrefix(id);
@@ -605,11 +604,10 @@ export class MemoryStore {
       // they don't decay with age (still falsifiable if evidence fails).
       // Callers can override (e.g. requireReview:false auto-approval never pins).
       pinned: overrides?.pinned ?? p.source.startsWith("knowledge:"),
+      trustExecutableEvidence: true,
     });
-    this.db
-      .prepare("UPDATE proposals SET status = 'APPROVED', memory_id = ?, updated_at = ? WHERE id = ?")
-      .run(entry.id, new Date().toISOString(), p.id);
-    this.recordEvent("proposal_approved", p.id, { memoryId: entry.id });
+    this.recordEvent("proposal_approved", p.id, { memoryId: entry.id, claim: p.claim });
+    this.discardProposal(p.id);
     return entry;
   }
 
@@ -617,11 +615,42 @@ export class MemoryStore {
     const p = this.findProposalByPrefix(id);
     if (!p) throw new Error(`No proposal matching id '${id}'`);
     if (p.status !== "PENDING") throw new Error(`Proposal ${p.id} is already ${p.status}`);
-    this.db
-      .prepare("UPDATE proposals SET status = 'REJECTED', updated_at = ? WHERE id = ?")
-      .run(new Date().toISOString(), p.id);
-    this.recordEvent("proposal_rejected", p.id);
+    this.recordEvent("proposal_rejected", p.id, { claim: p.claim });
+    this.discardProposal(p.id);
     return { ...p, status: "REJECTED" };
+  }
+
+  /** Claims from rejected proposals — used by triage (survives proposal row deletion). */
+  listRejectedClaims(limit = 500): string[] {
+    const claims: string[] = [];
+    const rows = this.db
+      .prepare(
+        `SELECT payload FROM events WHERE type = 'proposal_rejected' ORDER BY seq DESC LIMIT ?`
+      )
+      .all(limit) as Array<{ payload: string }>;
+    for (const r of rows) {
+      try {
+        const claim = JSON.parse(r.payload || "{}").claim;
+        if (typeof claim === "string" && claim) claims.push(claim);
+      } catch {
+        // ignore malformed event payloads
+      }
+    }
+    return [...new Set(claims)];
+  }
+
+  /**
+   * Remove resolved proposals (approved/rejected) and tombstone for sync.
+   * Use after upgrading brains that still carry historical APPROVED rows.
+   */
+  gcResolvedProposals(opts: { dryRun?: boolean } = {}): { removed: number } {
+    const rows = this.db
+      .prepare("SELECT id FROM proposals WHERE status IN ('APPROVED', 'REJECTED')")
+      .all() as Array<{ id: string }>;
+    if (!opts.dryRun) {
+      for (const r of rows) this.discardProposal(r.id);
+    }
+    return { removed: rows.length };
   }
 
   findProposalByPrefix(idOrPrefix: string): Proposal | null {
@@ -801,6 +830,19 @@ export class MemoryStore {
         .prepare("INSERT OR REPLACE INTO tombstones (id, tbl, deleted_at) VALUES (?, 'memories', ?)")
         .run(id, new Date().toISOString());
       this.recordEvent("forgotten", id);
+    });
+    tx();
+  }
+
+  /** Delete a proposal row and record a tombstone so team sync drops it on the remote brain. */
+  private discardProposal(id: string, deletedAt?: string): void {
+    const at = deletedAt ?? new Date().toISOString();
+    const tx = this.db.transaction(() => {
+      const res = this.db.prepare("DELETE FROM proposals WHERE id = ?").run(id);
+      if (res.changes === 0) throw new Error(`No proposal with id ${id}`);
+      this.db
+        .prepare("INSERT OR REPLACE INTO tombstones (id, tbl, deleted_at) VALUES (?, 'proposals', ?)")
+        .run(id, at);
     });
     tx();
   }

@@ -93,6 +93,12 @@ export interface MemoryWriteInput {
   pinned?: boolean;
   /** required when kind === "GUARDRAIL": always | ask-first | never */
   guardrailLevel?: GuardrailLevel;
+  /**
+   * When true, executable evidence (STATIC_CHECK / TEST_RESULT / EXEC_TRACE) is
+   * trusted for local verify. Default false — use for CLI human writes and
+   * human-approved proposals only.
+   */
+  trustExecutableEvidence?: boolean;
 }
 
 export interface MemorySearchOptions {

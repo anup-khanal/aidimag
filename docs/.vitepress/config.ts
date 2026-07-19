@@ -15,9 +15,14 @@ export default defineConfig({
   cleanUrls: true,
   ignoreDeadLinks: true,
 
+  appearance: "dark",
+
   head: [
     ["link", { rel: "icon", type: "image/svg+xml", href: "/aidimag/favicon.svg" }],
-    ["meta", { name: "theme-color", content: "#2563eb" }],
+    ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
+    ["link", { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" }],
+    ["meta", { name: "theme-color", content: "#0b1220" }],
+    ["meta", { name: "color-scheme", content: "light dark" }],
     ["meta", { property: "og:type", content: "website" }],
     ["meta", { property: "og:title", content: "AI Dimag — verified memory for AI coding agents" }],
     [
@@ -58,6 +63,7 @@ export default defineConfig({
         items: [
           { text: "Install & setup", link: "/getting-started" },
           { text: "Quick start (5 minutes)", link: "/quickstart" },
+          { text: "Cloud sync TLDR", link: "/cloud-quickstart" },
         ],
       },
       {

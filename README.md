@@ -25,15 +25,18 @@ Requires Node 18+. Ships two equivalent binaries: `dim` (short) and `aidimag`.
 
 ```sh
 cd your-repo
-dim init            # creates .aidimag/, installs additive git hooks
-dim bootstrap       # optional: LLM-survey the repo into a starter memory set
-dim review          # approve what enters memory (nothing is stored unreviewed)
+dim init                    # creates .aidimag/, installs additive git hooks
+dim bootstrap               # optional: LLM-survey the repo into a starter memory set
+dim review                  # approve what enters memory (nothing is stored unreviewed)
 
 dim remember "All DB access goes through src/db/store.ts" -k INVARIANT -p src/db \
   -e "STATIC_CHECK:grep -rL better-sqlite3 src --include=*.ts"
 dim recall db access
-dim verify          # re-run all evidence; stale beliefs get flagged
-dim brief           # session-start briefing: in-scope memory, guardrails, gaps
+dim verify                  # re-run all evidence; stale beliefs get flagged
+dim brief                   # session-start briefing: in-scope memory, guardrails, gaps
+
+# For non-MCP tools (Copilot, Cursor without MCP, etc.):
+dim generate-context --format all --auto   # creates .cursorrules, CLAUDE.md, copilot-instructions.md
 ```
 
 ## Hook it up to your AI agent (MCP)

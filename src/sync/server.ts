@@ -9,6 +9,7 @@
  *   GET  /v1/pull?brain=<id>&since=<seq>                  → { items, seq }
  *   POST /v1/events?brain=<id> { events: EventItem[] }    → { accepted }
  *   GET  /v1/consensus?brain=<id>[&memory=<id>]           → { consensus }
+ *   GET  /v1/snapshot?brain=<id>[&id=][&list=0][&limit=] → { seq, counts, items? }
  *   GET  /v1/health                                       → { ok, brains }
  *
  * Device auth (SaaS groundwork — RFC 8628-style device flow, no external IdP):
@@ -32,6 +33,9 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { timingSafeEqual, randomBytes, createHash } from "node:crypto";
 import { buildDirectProvider } from "../tickets/provider.js";
+import { validateSyncPushItems } from "../security/sync-push.js";
+import { sealDeviceToken, unsealDeviceToken } from "../security/seal.js";
+import { isAllowedTicketBaseUrl } from "../security/url.js";
 
 export interface SyncItem {
   tbl: "memories" | "proposals";
@@ -50,6 +54,30 @@ export interface EventItem {
   machine: string;
   schemaVersion: number;
   createdAt: string;
+}
+
+/** Current remote state for a brain (GET /v1/snapshot). */
+export interface RemoteSnapshotItem {
+  id: string;
+  tbl: "memories" | "proposals";
+  updatedAt: string;
+  deleted: boolean;
+  claim?: string;
+  status?: string;
+  kind?: string;
+  payload?: unknown;
+}
+
+export interface RemoteSnapshot {
+  brain: string;
+  seq: number;
+  counts: {
+    memories: number;
+    proposals: number;
+    tombstones: number;
+  };
+  items?: RemoteSnapshotItem[];
+  item?: RemoteSnapshotItem;
 }
 
 const DEVICE_CODE_TTL_MS = 15 * 60 * 1000;
@@ -205,22 +233,35 @@ function userCode(): string {
   return `${pick()}${pick()}${pick()}${pick()}-${pick()}${pick()}${pick()}${pick()}`;
 }
 
+const AUTH_PAGE_STYLES = `<style>
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+:root{--bg:hsl(222,47%,6%);--card:hsl(222,47%,8%);--border:hsl(217,33%,16%);--text:hsl(210,40%,98%);--dim:hsl(215,20%,65%);--primary:linear-gradient(120deg,#2563eb,#0ea5e9);--radius:12px}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 16px;font:16px/1.5 "Inter",ui-sans-serif,system-ui,sans-serif;color:var(--text);background:var(--bg);background-image:radial-gradient(at 0% 0%,rgba(37,99,235,.18) 0,transparent 50%),radial-gradient(at 100% 0%,rgba(14,165,233,.12) 0,transparent 50%)}
+.card{width:100%;max-width:28rem;padding:28px;border:1px solid color-mix(in srgb,var(--border) 60%,transparent);border-radius:calc(var(--radius)+4px);background:color-mix(in srgb,var(--card) 90%,transparent);box-shadow:0 0 0 1px rgba(96,165,250,.12),0 8px 32px rgba(0,0,0,.35)}
+h1{margin:0 0 4px;font-size:1.5rem;font-weight:700;letter-spacing:-.02em}h2{margin:0 0 20px;font-size:.95rem;font-weight:500;color:var(--dim)}
+label{display:block;margin:14px 0 6px;font-size:.8rem;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+input:focus{outline:2px solid hsl(199,89%,48%);outline-offset:1px;border-color:transparent}
+button{margin-top:18px;width:100%;padding:11px 16px;border:none;border-radius:8px;background:var(--primary);color:#fff;font:inherit;font-weight:600;cursor:pointer;box-shadow:0 8px 24px rgba(37,99,235,.3)}
+.msg{padding:12px 14px;border-radius:8px;background:hsl(213,94%,68%,.12);border:1px solid hsl(213,94%,68%,.25);margin-bottom:16px;font-size:.9rem}
+.success-icon{font-size:2.5rem;margin-bottom:12px}
+code{background:hsl(217,33%,14%);padding:2px 6px;border-radius:4px;font-size:.875em}
+</style>`;
+
 const APPROVE_PAGE = (msg = "", code = "") => `<!doctype html>
-<html><head><meta charset="utf-8"><title>aidimag — approve device</title>
-<style>body{font:16px system-ui;max-width:28rem;margin:4rem auto;padding:0 1rem}
-input{width:100%;padding:.5rem;margin:.25rem 0 1rem;font:inherit}button{padding:.5rem 1.5rem;font:inherit}
-.msg{padding:.75rem;border-radius:.5rem;background:#eef;margin-bottom:1rem}</style></head>
-<body><h1>🧠 aidimag</h1><h2>Approve a device login</h2>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>aidimag — approve device</title>
+${AUTH_PAGE_STYLES}</head>
+<body><div class="card"><h1>🧠 aidimag</h1><h2>Approve a device login</h2>
 ${msg ? `<div class="msg">${escapeHtml(msg)}</div>` : ""}
 <form method="POST" action="/v1/auth/approve">
-<label>Code shown in your terminal</label>
-<input name="user_code" placeholder="XXXX-XXXX" value="${escapeHtml(code)}" required>
-<label>Your credential (admin token or aidimag_sk_… member key)</label>
-<input name="credential" type="password" required>
-<label>Device label (optional)</label>
-<input name="label" placeholder="alice-laptop">
+<label for="user_code">Code shown in your terminal</label>
+<input id="user_code" name="user_code" placeholder="XXXX-XXXX" value="${escapeHtml(code)}" required autocomplete="off">
+<label for="credential">Your credential (admin token or aidimag_sk_… member key)</label>
+<input id="credential" name="credential" type="password" required autocomplete="off">
+<label for="label">Device label (optional)</label>
+<input id="label" name="label" placeholder="alice-laptop">
 <button type="submit">Approve device</button>
-</form></body></html>`;
+</form></div></body></html>`;
 
 export function startSyncServer(opts: {
   dbPath: string;
@@ -249,6 +290,7 @@ export function startSyncServer(opts: {
   }
 
   const authLimiter = makeRateLimiter(20, 60_000); // 20 req/min/IP on /v1/auth/*
+  const syncLimiter = makeRateLimiter(120, 60_000); // 120 req/min/IP on authenticated sync
 
   const insertItem = db.prepare(
     "INSERT INTO items (brain, tbl, id, updated_at, deleted, payload) VALUES (?, ?, ?, ?, ?, ?)"
@@ -264,7 +306,7 @@ export function startSyncServer(opts: {
   );
 
   const port = opts.port ?? 8787;
-  const host = opts.host ?? "0.0.0.0";
+  const host = opts.host ?? "127.0.0.1";
 
   /** Resolve the brain scope of a presented credential: '*' admin, brain name, or null (invalid). */
   function credentialScope(presented: string): string | null {
@@ -277,7 +319,7 @@ export function startSyncServer(opts: {
     const at = db
       .prepare("SELECT brain FROM account_tokens WHERE token = ? AND revoked_at IS NULL")
       .get(hashed) as { brain: string | null } | undefined;
-    if (at) return at.brain ?? "*";
+    if (at?.brain) return at.brain;
     return null;
   }
 
@@ -353,16 +395,17 @@ export function startSyncServer(opts: {
             new Date().toISOString()
           );
           db.prepare("UPDATE device_codes SET status = 'APPROVED', token = ? WHERE device_code = ?").run(
-            token,
+            sealDeviceToken(token, opts.token),
             row.device_code
           );
         });
         tx();
         return respondHtml(
           200,
-          `<!doctype html><html><body style="font:16px system-ui;max-width:28rem;margin:4rem auto">
-           <h1>✅ Device approved</h1><p>Scope: <b>${escapeHtml(scope === "*" ? "all brains" : scope)}</b>.
-           Return to your terminal — <code>dim login</code> finishes automatically.</p></body></html>`
+          `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>aidimag — device approved</title>${AUTH_PAGE_STYLES}</head>
+           <body><div class="card"><div class="success-icon">✅</div><h1>Device approved</h1>
+           <p style="color:var(--dim);margin:12px 0 0">Scope: <strong style="color:var(--text)">${escapeHtml(scope === "*" ? "all brains" : scope)}</strong>.
+           Return to your terminal — <code>dim login</code> finishes automatically.</p></div></body></html>`
         );
       }
 
@@ -381,12 +424,14 @@ export function startSyncServer(opts: {
         if (row.expires_at < new Date().toISOString()) return respond(410, { error: "expired" });
         if (row.status === "DENIED") return respond(410, { error: "denied" });
         if (row.status !== "APPROVED" || !row.token) return respond(428, { error: "authorization_pending" });
+        const plainToken = unsealDeviceToken(row.token, opts.token);
+        if (!plainToken) return respond(500, { error: "token handoff failed" });
         const scope = db
           .prepare("SELECT brain FROM account_tokens WHERE token = ?")
-          .get(hashCred(row.token)) as { brain: string | null } | undefined;
+          .get(hashCred(plainToken)) as { brain: string | null } | undefined;
         // device codes are single-use: scrub after handoff
         db.prepare("DELETE FROM device_codes WHERE device_code = ?").run(deviceCode);
-        return respond(200, { token: row.token, brain: scope?.brain ?? null });
+        return respond(200, { token: plainToken, brain: scope?.brain ?? null });
       }
 
       // ---- everything below requires Bearer auth ----------------------------
@@ -449,16 +494,20 @@ export function startSyncServer(opts: {
       const brain = url.searchParams.get("brain");
       if (!brain) return respond(400, { error: "missing ?brain=" });
       if (!isAdmin) {
+        const syncIp = req.socket.remoteAddress ?? "unknown";
+        if (!syncLimiter(syncIp)) return respond(429, { error: "rate limited — try again in a minute" });
         const scope = credentialScope(presented);
-        if (scope === null || (scope !== "*" && scope !== brain)) {
+        if (scope === null || scope !== brain) {
           return respond(401, { error: "unauthorized for this brain" });
         }
       }
 
       if (req.method === "POST" && url.pathname === "/v1/push") {
         const body = await readBody(req);
-        const { items } = JSON.parse(body) as { items: SyncItem[] };
+        const parsed = JSON.parse(body) as { items: SyncItem[] };
+        const items = validateSyncPushItems(parsed.items ?? []);
         let accepted = 0;
+        let memoriesAccepted = 0;
         const tx = db.transaction(() => {
           for (const it of items) {
             if (!it.id || !it.tbl || !it.updatedAt) continue;
@@ -475,11 +524,12 @@ export function startSyncServer(opts: {
             );
             setLatest.run(brain, it.tbl, it.id, info.lastInsertRowid as number, it.updatedAt);
             accepted++;
+            if (it.tbl === "memories" && !it.deleted) memoriesAccepted++;
           }
         });
         tx();
         const seq = (db.prepare("SELECT COALESCE(MAX(seq),0) AS s FROM items WHERE brain = ?").get(brain) as { s: number }).s;
-        return respond(200, { accepted, seq });
+        return respond(200, { accepted, memoriesAccepted, seq });
       }
 
       if (req.method === "GET" && url.pathname === "/v1/pull") {
@@ -528,6 +578,94 @@ export function startSyncServer(opts: {
         return respond(200, { accepted });
       }
 
+      // ---- snapshot: read-only latest state (no sync cursor) ----------------
+      if (req.method === "GET" && url.pathname === "/v1/snapshot") {
+        const idFilter = url.searchParams.get("id");
+        const tblFilter = url.searchParams.get("tbl") === "proposals" ? "proposals" : "memories";
+        const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") ?? "20", 10), 1), 200);
+        const list = !(url.searchParams.get("list") === "0" || url.searchParams.get("list") === "false");
+        const full = url.searchParams.get("full") === "1" || url.searchParams.get("full") === "true";
+        const includeAllProposals =
+          url.searchParams.get("all") === "1" || url.searchParams.get("all") === "true";
+        const pendingProposalSql = `(json_extract(i.payload, '$.status') IS NULL OR json_extract(i.payload, '$.status') = 'PENDING')`;
+        const seq = (db.prepare("SELECT COALESCE(MAX(seq),0) AS s FROM items WHERE brain = ?").get(brain) as { s: number }).s;
+        const countRows = db
+          .prepare(
+            `SELECT i.tbl, i.deleted, COUNT(*) AS n
+             FROM latest l JOIN items i ON l.brain = i.brain AND l.tbl = i.tbl AND l.id = i.id AND l.seq = i.seq
+             WHERE l.brain = ? GROUP BY i.tbl, i.deleted`
+          )
+          .all(brain) as Array<{ tbl: string; deleted: number; n: number }>;
+        const pendingRow = db
+          .prepare(
+            `SELECT COUNT(*) AS n
+             FROM latest l JOIN items i ON l.brain = i.brain AND l.tbl = i.tbl AND l.id = i.id AND l.seq = i.seq
+             WHERE l.brain = ? AND i.tbl = 'proposals' AND i.deleted = 0 AND ${pendingProposalSql}`
+          )
+          .get(brain) as { n: number };
+        let memories = 0;
+        let tombstones = 0;
+        for (const row of countRows) {
+          if (row.deleted) tombstones += row.n;
+          else if (row.tbl === "memories") memories += row.n;
+        }
+        const proposals = pendingRow.n;
+        const summarize = (tbl: string, payload: string | null, deleted: boolean) => {
+          if (deleted || !payload) return {};
+          const row = JSON.parse(payload) as Record<string, unknown>;
+          if (tbl === "memories") {
+            return {
+              claim: typeof row.claim === "string" ? row.claim : undefined,
+              status: typeof row.status === "string" ? row.status : undefined,
+              kind: typeof row.kind === "string" ? row.kind : undefined,
+            };
+          }
+          return {
+            claim: typeof row.claim === "string" ? row.claim : typeof row.summary === "string" ? row.summary : undefined,
+            status: typeof row.status === "string" ? row.status : undefined,
+          };
+        };
+        const mapRow = (r: { tbl: string; id: string; updated_at: string; deleted: number; payload: string | null }) => ({
+          id: r.id,
+          tbl: r.tbl as SyncItem["tbl"],
+          updatedAt: r.updated_at,
+          deleted: !!r.deleted,
+          ...summarize(r.tbl, r.payload, !!r.deleted),
+          ...(full && r.payload && !r.deleted ? { payload: JSON.parse(r.payload) } : {}),
+        });
+        if (idFilter) {
+          const row = db
+            .prepare(
+              `SELECT i.tbl, i.id, i.updated_at, i.deleted, i.payload
+               FROM latest l JOIN items i ON l.brain = i.brain AND l.tbl = i.tbl AND l.id = i.id AND l.seq = i.seq
+               WHERE l.brain = ? AND i.id = ?`
+            )
+            .get(brain, idFilter) as { tbl: string; id: string; updated_at: string; deleted: number; payload: string | null } | undefined;
+          return respond(200, {
+            brain,
+            seq,
+            counts: { memories, proposals, tombstones },
+            ...(row ? { item: mapRow(row) } : {}),
+          });
+        }
+        const items = list
+          ? (db
+              .prepare(
+                tblFilter === "proposals" && !includeAllProposals
+                  ? `SELECT i.tbl, i.id, i.updated_at, i.deleted, i.payload
+                     FROM latest l JOIN items i ON l.brain = i.brain AND l.tbl = i.tbl AND l.id = i.id AND l.seq = i.seq
+                     WHERE l.brain = ? AND i.tbl = ? AND i.deleted = 0 AND ${pendingProposalSql}
+                     ORDER BY i.updated_at DESC LIMIT ?`
+                  : `SELECT i.tbl, i.id, i.updated_at, i.deleted, i.payload
+                     FROM latest l JOIN items i ON l.brain = i.brain AND l.tbl = i.tbl AND l.id = i.id AND l.seq = i.seq
+                     WHERE l.brain = ? AND i.tbl = ? AND i.deleted = 0
+                     ORDER BY i.updated_at DESC LIMIT ?`
+              )
+              .all(brain, tblFilter, limit) as Array<{ tbl: string; id: string; updated_at: string; deleted: number; payload: string | null }>).map(mapRow)
+          : undefined;
+        return respond(200, { brain, seq, counts: { memories, proposals, tombstones }, ...(items ? { items } : {}) });
+      }
+
       // ---- consensus: latest verification_report per (memory, machine) ------
       if (req.method === "GET" && url.pathname === "/v1/consensus") {
         const memoryFilter = url.searchParams.get("memory");
@@ -569,6 +707,9 @@ export function startSyncServer(opts: {
           const body = await readBody(req);
           const cfg = JSON.parse(body || "{}") as { provider?: string; baseUrl?: string; credential?: string };
           if (!cfg.provider) return respond(400, { error: "missing provider" });
+          if (cfg.provider === "http" && cfg.baseUrl && !isAllowedTicketBaseUrl(cfg.baseUrl)) {
+            return respond(400, { error: "ticket baseUrl not allowed" });
+          }
           db.prepare(
             `INSERT INTO ticket_configs (brain, provider, base_url, credential, updated_at) VALUES (?, ?, ?, ?, ?)
              ON CONFLICT(brain) DO UPDATE SET provider=excluded.provider, base_url=excluded.base_url,

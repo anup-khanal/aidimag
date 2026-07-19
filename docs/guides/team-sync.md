@@ -1,7 +1,12 @@
 # Team sync
 
 By default aiDimag is single-player: memory lives in a local SQLite file. To share a **team
-brain** for a repo, run a small sync server — no SaaS required.
+brain** for a repo, use **aiDimag Cloud** (hosted) or run your own sync server.
+
+::: tip Cloud sync one-pager
+For the hosted dashboard + API key flow, see **[Cloud sync TLDR](/cloud-quickstart)**.
+This page covers the **self-hosted** `dim serve` option.
+:::
 
 ![Team sync architecture: each developer keeps a full local replica; dim serve is a dumb ordered log; synced-in evidence is gated behind dim verify --trust](/diagram-team-sync.svg){.dim-diagram}
 

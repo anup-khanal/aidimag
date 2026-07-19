@@ -70,11 +70,15 @@ dim remember "Never call the production payments API from src; use the sandbox c
 Turn your trusted memory into files any assistant reads at startup:
 
 ```sh
-dim generate-context -f all
+dim generate-context --format all --auto
 ```
 
-This writes `CLAUDE.md`, `.cursorrules`, and `.github/copilot-instructions.md`, with
-guardrails listed first.
+This writes `CLAUDE.md`, `.cursorrules`, `.windsurfrules`, `AGENTS.md`, and `.github/copilot-instructions.md`, with guardrails listed first. The `--auto` flag enables automatic regeneration — these files will stay fresh after you approve new memories, verify changes, or sync with your team.
+
+::: tip
+Without `--auto`, you must manually run `dim generate-context` after every memory change.
+Use `--auto` to keep context files synchronized automatically.
+:::
 
 ## 6. Capture knowledge from history
 

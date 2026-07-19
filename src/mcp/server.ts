@@ -4,7 +4,7 @@
  * (Claude Code, Cursor, Copilot, ...) over stdio.
  *
  * Tools: memory_search, memory_get_for_files, memory_write, memory_refute, memory_status,
- *        context_note (passive in-chat fact capture), … — searches are logged so zero-hit
+ *        commits_mine, context_note (passive in-chat fact capture), … — searches are logged so zero-hit
  *        queries surface as coverage gaps (`dim gaps`).
  * Resource: aidimag://digest — repo memory digest for session bootstrapping.
  */
@@ -12,16 +12,18 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MemoryStore, findRepoRoot } from "../db/store.js";
 import { sessionEndPromptFor, proposalSummaryLine } from "../capture/session-extraction.js";
+import { mineCommits, mineCommitsLlm, describeMineResult } from "../capture/commit-miner.js";
 import { buildSessionBriefing, renderBriefing, sessionStartPrompt } from "../capture/session-briefing.js";
 import { critique } from "../critique/critique.js";
 import { ticketProviderFor, detectBranchTicket } from "../tickets/provider.js";
 import { verifyAll } from "../verify/engine.js";
 import { hybridSearch, indexMemory } from "../embeddings/search.js";
+import { stripExecutableEvidence } from "../security/evidence.js";
 import { resolveKnowledgeConfig } from "../config.js";
 import { classifyInbox, finalizeDoc } from "../knowledge/ingest.js";
 import { KNOWLEDGE_EXTRACT_INSTRUCTIONS, buildExtractionUser, parseClaims } from "../knowledge/extract.js";
@@ -154,18 +156,23 @@ async function main() {
       created_by: z.string().optional().describe("Agent identifier, e.g. 'claude-code'"),
     },
     async (args) => {
+      const { safe, stripped } = stripExecutableEvidence(args.evidence);
       const entry = store.write({
         kind: args.kind,
         claim: args.claim,
         paths: args.paths,
         symbols: args.symbols,
-        evidence: args.evidence,
+        evidence: safe,
         createdBy: args.created_by ?? "agent",
         guardrailLevel: args.guardrail_level,
       });
       await indexMemory(store, entry).catch(() => false);
+      const stripNote =
+        stripped > 0
+          ? `\n(stripped ${stripped} executable evidence item(s) — use memory_propose + dim review for shell checks)`
+          : "";
       return {
-        content: [{ type: "text", text: `Memory saved (id=${entry.id}, status=${entry.status}).\n${renderMemory(entry)}` }],
+        content: [{ type: "text", text: `Memory saved (id=${entry.id}, status=${entry.status}).${stripNote}\n${renderMemory(entry)}` }],
       };
     }
   );
@@ -406,6 +413,52 @@ async function main() {
           ],
         };
       }
+    }
+  );
+
+  server.tool(
+    "commits_mine",
+    "Mine git commit history for memory-worthy candidates (same as `dim mine`). Queues proposals for `dim review` — never writes active memory directly. Use after meaningful commits, or with full=true to rescan all history.",
+    {
+      full: z
+        .boolean()
+        .optional()
+        .describe("Rescan from the beginning of history (ignore cursor). Default: only commits since the last mine."),
+      llm: z
+        .boolean()
+        .optional()
+        .describe("Deep mining: LLM reads each commit message and diff (needs Ollama or OPENAI_API_KEY). Falls back to keyword heuristics if unavailable."),
+      max: z
+        .number()
+        .int()
+        .min(1)
+        .max(500)
+        .optional()
+        .describe("Max commits to scan (default 500 for keyword mining, 40 for llm)"),
+    },
+    async (args) => {
+      const root = process.env.AIDIMAG_REPO ?? findRepoRoot() ?? process.cwd();
+      if (!existsSync(path.join(root, ".git"))) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "Commit mining requires a git repo (no .git directory found)." }],
+        };
+      }
+      const max = args.max ?? (args.llm ? 40 : 500);
+      let llmProvider: string | null = null;
+      let result;
+      if (args.llm) {
+        const r = await mineCommitsLlm(store, root, { maxCommits: max, full: Boolean(args.full) });
+        llmProvider = r.provider;
+        result = r;
+      } else {
+        result = mineCommits(store, root, { maxCommits: max, full: Boolean(args.full) });
+      }
+      let text = describeMineResult(result, { llmProvider, llmRequested: Boolean(args.llm) });
+      if (result.proposed.length) {
+        text += "\n\n" + result.proposed.map(proposalSummaryLine).join("\n");
+      }
+      return { content: [{ type: "text", text }] };
     }
   );
 

@@ -15,10 +15,11 @@
  * time or on demand (`dim ticket show`).
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import path from "node:path";
+import { isAllowedTicketBaseUrl } from "../security/url.js";
 
 // ---------------------------------------------------------------- contract
 
@@ -112,6 +113,7 @@ export function saveTicketCredential(baseUrl: string, credential: string): void 
   const creds = existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : {};
   creds[`ticket:${baseUrl}`] = credential;
   writeFileSync(p, JSON.stringify(creds, null, 2) + "\n", { mode: 0o600 });
+  try { chmodSync(p, 0o600); } catch { /* best-effort */ }
 }
 
 // ---------------------------------------------------------------- ticket-id extraction (T1 — offline)
@@ -331,6 +333,7 @@ export function buildDirectProvider(
     case "linear":
       return credential ? new LinearProvider(credential) : null;
     case "http":
+      if (!isAllowedTicketBaseUrl(baseUrl)) return null;
       return new HttpProvider(baseUrl, credential); // credential optional for internal services
     default:
       return null;

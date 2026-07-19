@@ -10,12 +10,14 @@
 import { createServer } from "node:http";
 import { watch, mkdirSync } from "node:fs";
 import path from "node:path";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { verifyAll } from "../verify/engine.js";
 import { mineCommits } from "../capture/commit-miner.js";
 import { hybridSearch, indexMemory, reindexAll } from "../embeddings/search.js";
 import { readCloudConfig, writeCloudConfig, saveToken, getToken, sync as cloudSync } from "../sync/client.js";
 import { resolveKnowledgeConfig } from "../config.js";
 import { ingestAll } from "../knowledge/ingest.js";
+import { isAllowedSyncServerUrl } from "../security/url.js";
 import {
   readTicketsConfig,
   writeTicketsConfig,
@@ -60,6 +62,19 @@ function readBody(req: import("node:http").IncomingMessage): Promise<Record<stri
 }
 
 export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517): Promise<string> {
+  const csrfToken = randomBytes(32).toString("base64url");
+
+  const isMutation = (method: string | undefined) =>
+    method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
+
+  const requireCsrf = (req: import("node:http").IncomingMessage): boolean => {
+    const header = req.headers["x-aidimag-csrf-token"];
+    const got = (Array.isArray(header) ? header[0] : header) ?? "";
+    const a = Buffer.from(String(got));
+    const b = Buffer.from(csrfToken);
+    return a.length === b.length && a.length > 0 && timingSafeEqual(a, b);
+  };
+
   // Auto-sync with the linked team server every N minutes while the dashboard
   // runs (AIDIMAG_AUTOSYNC_MINUTES, default 10, 0 disables). Failures are
   // silent — the next manual sync or dashboard action surfaces them.
@@ -111,6 +126,11 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
     const path = url.pathname;
 
     try {
+      if (isMutation(req.method) && !requireCsrf(req)) {
+        json(res, 403, { error: "forbidden" });
+        return;
+      }
+
       if (req.method === "GET" && path === "/") {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(PAGE_HTML);
@@ -122,6 +142,7 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
         const tcfg = readTicketsConfig(repoRoot);
         json(res, 200, {
           repoRoot,
+          csrfToken,
           memories: store.list(1000),
           proposals: store.listProposals("PENDING", 200),
           summary: store.statusSummary(),
@@ -190,7 +211,14 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
       if (req.method === "POST" && path === "/api/mine") {
         const full = url.searchParams.get("full") === "1";
         const r = mineCommits(store, repoRoot, { full });
-        json(res, 200, { scanned: r.scanned, proposed: r.proposed.length, skipped: r.skippedDuplicates });
+        json(res, 200, {
+          scanned: r.scanned,
+          proposed: r.proposed.length,
+          skipped: r.skippedDuplicates,
+          noCommits: r.noCommits ?? false,
+          noNewCommits: r.noNewCommits ?? false,
+          cursor: r.lastSha,
+        });
         return;
       }
 
@@ -219,6 +247,10 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
           return;
         }
         const serverUrl = String(b.server).replace(/\/$/, "");
+        if (!isAllowedSyncServerUrl(serverUrl)) {
+          json(res, 400, { error: "invalid server URL" });
+          return;
+        }
         writeCloudConfig(repoRoot, { server: serverUrl, brain: String(b.brain) });
         if (b.token) saveToken(serverUrl, String(b.token));
         json(res, 200, { ok: true, hasToken: !!getToken(serverUrl) });
@@ -322,6 +354,10 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
         // string — so it can't leak into browser history, proxy/access logs.
         const headerToken = req.headers["x-aidimag-admin-token"];
         const target = String((b.server as string) ?? url.searchParams.get("server") ?? cloud?.server ?? "");
+        if (cloud && target && target.replace(/\/$/, "") !== cloud.server.replace(/\/$/, "")) {
+          json(res, 400, { error: "server must match linked cloud config" });
+          return;
+        }
         const admin = String(
           (b.adminToken as string) ??
             (Array.isArray(headerToken) ? headerToken[0] : headerToken) ??
@@ -381,7 +417,9 @@ export function startUiServer(store: MemoryStore, repoRoot: string, port = 4517)
 
       json(res, 404, { error: "not found" });
     } catch (err) {
-      json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      const msg = err instanceof Error ? err.message : "internal error";
+      console.error(`[dim ui] ${req.method} ${req.url}:`, msg);
+      json(res, 500, { error: msg });
     }
   });
 

@@ -36,11 +36,13 @@ test("verifyAll: pass → VERIFIED with boost; fail → STALE with floor + recov
       kind: "INVARIANT",
       claim: "true is true",
       evidence: [{ type: "STATIC_CHECK", payload: "true" }],
+      trustExecutableEvidence: true,
     });
     const bad = store.write({
       kind: "INVARIANT",
       claim: "false is true",
       evidence: [{ type: "STATIC_CHECK", payload: "false" }],
+      trustExecutableEvidence: true,
     });
 
     const report = verifyAll(store, dir);

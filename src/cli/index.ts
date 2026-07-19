@@ -7,7 +7,7 @@
  *
  *   memory.ts     init, remember, recall, reindex, status, log, gaps,
  *                 refute, pin, unpin, forget
- *   capture.ts    mine (commits/PRs), bootstrap, harvest, review
+ *   capture.ts    mine (commits/PRs), bootstrap, harvest, review, proposals gc
  *   verify.ts     verify, check, brief
  *   sync.ts       serve, cloud, login, logout, sync, keys
  *   tickets.ts    ticket, branch, branch-check

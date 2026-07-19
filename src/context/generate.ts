@@ -3,7 +3,8 @@
  *
  * Renders the repo's trustworthy memory (VERIFIED + UNVERIFIED + pinned, never
  * STALE/REFUTED) into the static context file that non-MCP AI tools read at
- * session start: CLAUDE.md, .cursorrules, or .github/copilot-instructions.md.
+ * session start: CLAUDE.md, .cursorrules, .windsurfrules, AGENTS.md, or
+ * .github/copilot-instructions.md.
  *
  * This is what makes aidimag useful to *every* AI tool, not just MCP clients.
  */
@@ -21,6 +22,8 @@ const FORMAT_FILES: Record<Exclude<ContextFormat, "all">, string> = {
   claude: "CLAUDE.md",
   cursorrules: ".cursorrules",
   copilot: path.join(".github", "copilot-instructions.md"),
+  windsurfrules: ".windsurfrules",
+  agents: "AGENTS.md",
 };
 
 const GUARDRAIL_ICON: Record<GuardrailLevel, string> = {
@@ -118,7 +121,7 @@ export function renderContext(store: MemoryStore): RenderResult {
 }
 
 function targetsFor(format: ContextFormat): Array<Exclude<ContextFormat, "all">> {
-  return format === "all" ? ["claude", "cursorrules", "copilot"] : [format];
+  return format === "all" ? ["claude", "cursorrules", "copilot", "windsurfrules", "agents"] : [format];
 }
 
 export interface WriteResult extends RenderResult {

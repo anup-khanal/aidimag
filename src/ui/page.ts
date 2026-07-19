@@ -7,69 +7,240 @@ export const PAGE_HTML = /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>aidimag — repo brain</title>
+<title>aiDimag — repo brain</title>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<meta name="color-scheme" content="light dark">
 <style>
   :root {
-    --bg: #0f1117; --panel: #181b24; --border: #2a2f3d; --text: #d6d9e0; --dim: #8a90a0;
-    --verified: #3fb950; --unverified: #8a90a0; --stale: #d29922; --refuted: #f85149; --path: #58a6ff;
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --muted: 214 32% 94%;
+    --muted-foreground: 215 16% 47%;
+    --primary: 217 91% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 214 32% 94%;
+    --border: 214 32% 91%;
+    --ring: 199 89% 48%;
+    --radius: 0.75rem;
+    --surface-glow: 0 0 0 1px rgba(37, 99, 235, 0.08), 0 8px 32px rgba(37, 99, 235, 0.08);
+    --verified: #22c55e;
+    --unverified: #64748b;
+    --stale: #eab308;
+    --refuted: #ef4444;
+    --path: #2563eb;
+  }
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 8%;
+    --muted: 217 33% 14%;
+    --muted-foreground: 215 20% 65%;
+    --primary: 213 94% 68%;
+    --primary-foreground: 222 47% 6%;
+    --secondary: 217 33% 14%;
+    --border: 217 33% 16%;
+    --surface-glow: 0 0 0 1px rgba(96, 165, 250, 0.12), 0 8px 32px rgba(0, 0, 0, 0.35);
+    --path: #60a5fa;
+    --unverified: #94a3b8;
   }
   * { box-sizing: border-box; margin: 0; }
-  body { background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; height: 100vh; display: flex; flex-direction: column; }
-  header { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; padding: 10px 18px; border-bottom: 1px solid var(--border); }
-  header h1 { font-size: 16px; font-weight: 600; }
-  header h1 span { color: var(--dim); font-weight: 400; font-size: 12px; margin-left: 8px; }
-  .pill { padding: 2px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); white-space: nowrap; }
-  .pill b { font-weight: 600; }
+  html { color-scheme: light dark; }
+  body {
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(at 0% 0%, rgba(37, 99, 235, 0.12) 0, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(14, 165, 233, 0.1) 0, transparent 50%),
+      radial-gradient(at 50% 100%, rgba(6, 182, 212, 0.08) 0, transparent 50%);
+    color: hsl(var(--foreground));
+    font: 14px/1.5 "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+  }
+  html.dark body {
+    background-image:
+      radial-gradient(at 0% 0%, rgba(37, 99, 235, 0.18) 0, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(14, 165, 233, 0.12) 0, transparent 50%),
+      radial-gradient(at 50% 100%, rgba(6, 182, 212, 0.1) 0, transparent 50%);
+  }
+  header {
+    display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap;
+    padding: 10px 16px;
+    border-bottom: 1px solid hsl(var(--border) / 0.6);
+    background: hsl(var(--card) / 0.82);
+    backdrop-filter: blur(16px);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .logo { width: 32px; height: 32px; flex-shrink: 0; border-radius: 10px; }
+  .brand-text { min-width: 0; }
+  header h1 { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+  header .subtitle {
+    display: block; font-size: 11px; font-weight: 500; color: hsl(var(--muted-foreground));
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px;
+  }
+  .pill {
+    padding: 3px 10px; border-radius: 999px; font-size: 12px;
+    border: 1px solid hsl(var(--border)); white-space: nowrap;
+    background: hsl(var(--muted) / 0.6); color: hsl(var(--muted-foreground));
+  }
+  .pill b { font-weight: 600; color: hsl(var(--foreground)); }
   .spacer { flex: 1; }
-  button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; background: #21262d; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap;
+    background: hsl(var(--secondary)); color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px);
+    padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  }
   button svg { width: 14px; height: 14px; flex: 0 0 auto; }
-  button:hover { background: #30363d; }
-  button.primary { background: #1f6feb; border-color: #1f6feb; }
-  button.danger:hover { background: #f8514922; border-color: var(--refuted); }
+  button:hover:not(.primary) { background: hsl(var(--muted)); border-color: hsl(var(--primary) / 0.35); }
+  button:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+  button.primary {
+    background: hsl(var(--primary)); border-color: transparent;
+    color: hsl(var(--primary-foreground));
+  }
+  button.primary:hover { opacity: 0.9; background: hsl(var(--primary)); border-color: transparent; }
+  button.icon { padding: 8px; width: 36px; height: 36px; }
+  button.danger:hover { background: color-mix(in srgb, var(--refuted) 12%, transparent); border-color: var(--refuted); }
   main { flex: 1; display: flex; min-height: 0; }
-  #graph { flex: 1; min-width: 0; }
-  aside { width: 460px; border-left: 1px solid var(--border); overflow-y: auto; padding: 14px; }
-  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 14px 0 8px; }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
-  .card .claim { font-size: 13px; margin-bottom: 6px; }
-  .card .meta { font-size: 11px; color: var(--dim); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .badge { padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; }
-  .badge.VERIFIED { background: #3fb95022; color: var(--verified); }
-  .badge.UNVERIFIED { background: #8a90a022; color: var(--unverified); }
-  .badge.STALE { background: #d2992222; color: var(--stale); }
-  .badge.REFUTED { background: #f8514922; color: var(--refuted); }
-  .kind { color: var(--path); }
-  .actions { margin-top: 8px; display: flex; gap: 6px; }
-  .evidence { font-size: 11px; color: var(--dim); font-family: ui-monospace, monospace; margin-top: 4px; word-break: break-all; }
-  .legend { display: flex; gap: 14px; padding: 8px 18px; font-size: 11px; color: var(--dim); border-top: 1px solid var(--border); }
+  #graph { flex: 1; min-width: 0; background: hsl(var(--background) / 0.35); }
+  aside {
+    width: 460px; border-left: 1px solid hsl(var(--border) / 0.6);
+    overflow-y: auto; padding: 16px;
+    background: hsl(var(--card) / 0.55); backdrop-filter: blur(12px);
+  }
+  h2 { font-size: 14px; font-weight: 600; color: hsl(var(--foreground)); margin: 16px 0 10px; letter-spacing: -0.01em; }
+  .card {
+    background: hsl(var(--card) / 0.9);
+    border: 1px solid hsl(var(--border) / 0.6);
+    border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+    box-shadow: var(--surface-glow);
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .card:hover { border-color: hsl(var(--primary) / 0.3); }
+  .card .claim { font-size: 13px; margin-bottom: 6px; line-height: 1.5; }
+  .card .meta { font-size: 11px; color: hsl(var(--muted-foreground)); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; border: 1px solid transparent; }
+  .badge.VERIFIED { background: color-mix(in srgb, var(--verified) 15%, transparent); color: var(--verified); }
+  .badge.UNVERIFIED { background: color-mix(in srgb, var(--unverified) 15%, transparent); color: var(--unverified); }
+  .badge.STALE { background: color-mix(in srgb, var(--stale) 15%, transparent); color: var(--stale); }
+  .badge.REFUTED { background: color-mix(in srgb, var(--refuted) 15%, transparent); color: var(--refuted); }
+  .kind { color: hsl(var(--primary)); font-weight: 500; }
+  .actions { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .evidence { font-size: 11px; color: hsl(var(--muted-foreground)); font-family: ui-monospace, monospace; margin-top: 4px; word-break: break-all; }
+  .legend {
+    display: flex; gap: 14px; flex-wrap: wrap; padding: 8px 16px; font-size: 11px;
+    color: hsl(var(--muted-foreground)); border-top: 1px solid hsl(var(--border) / 0.6);
+    background: hsl(var(--card) / 0.65); backdrop-filter: blur(12px);
+  }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
-  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1f6feb; padding: 8px 18px; border-radius: 8px; display: none; font-size: 13px; z-index: 50; }
-  .empty { color: var(--dim); font-size: 12px; padding: 8px 0; }
-  svg text { fill: var(--dim); font-size: 10px; pointer-events: none; }
-  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 18px; width: 480px; max-width: 92vw; }
-  dialog::backdrop { background: rgba(0,0,0,.55); }
-  dialog h3 { font-size: 14px; margin-bottom: 12px; }
-  dialog label { display: block; font-size: 11px; color: var(--dim); margin: 10px 0 3px; text-transform: uppercase; letter-spacing: .05em; }
-  dialog input, dialog select, dialog textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 13px; font-family: inherit; }
+  #toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: hsl(var(--card)); color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border) / 0.6);
+    padding: 10px 18px;
+    border-radius: var(--radius); display: none; font-size: 13px; font-weight: 500; z-index: 50;
+    box-shadow: var(--surface-glow);
+  }
+  .empty { color: hsl(var(--muted-foreground)); font-size: 12px; padding: 8px 0; }
+  svg text { fill: hsl(var(--muted-foreground)); font-size: 10px; pointer-events: none; }
+  dialog {
+    background: hsl(var(--card)); color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border) / 0.6);
+    border-radius: calc(var(--radius) + 2px); padding: 20px; width: 480px; max-width: 92vw;
+    box-shadow: var(--surface-glow);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(4px); }
+  dialog h3 { font-size: 15px; font-weight: 700; margin-bottom: 12px; letter-spacing: -0.02em; }
+  dialog label {
+    display: block; font-size: 12px; color: hsl(var(--muted-foreground));
+    margin: 12px 0 4px; font-weight: 500;
+  }
+  dialog input, dialog select, dialog textarea {
+    width: 100%; background: hsl(var(--background)); color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px);
+    padding: 8px 10px; font-size: 13px; font-family: inherit;
+  }
+  dialog input:focus, dialog select:focus, dialog textarea:focus {
+    outline: 2px solid hsl(var(--ring)); outline-offset: 1px; border-color: transparent;
+  }
   dialog textarea { min-height: 64px; resize: vertical; }
   .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
-  .ev-row { display: flex; gap: 6px; margin-top: 6px; }
+  .ev-row { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
   .ev-row select { width: 160px; }
   .searchbar { display: flex; gap: 6px; margin-bottom: 10px; }
-  .searchbar input { flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
-  .searchbar select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; }
-  .keyrow { font-size: 11px; font-family: ui-monospace, monospace; display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); }
-  .hint { font-size: 11px; color: var(--dim); margin-top: 6px; }
+  .searchbar input {
+    flex: 1; background: hsl(var(--background)); color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px);
+    padding: 8px 10px; font-size: 13px;
+  }
+  .searchbar input:focus { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; border-color: transparent; }
+  .searchbar select {
+    background: hsl(var(--background)); color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px);
+    font-size: 12px; padding: 6px 8px;
+  }
+  .keyrow {
+    font-size: 11px; font-family: ui-monospace, monospace;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 4px 0; border-bottom: 1px solid hsl(var(--border));
+  }
+  .hint { font-size: 11px; color: hsl(var(--muted-foreground)); margin-top: 6px; line-height: 1.5; }
+  .theme-icon-sun { display: none; }
+  html:not(.dark) .theme-icon-sun { display: block; }
+  html:not(.dark) .theme-icon-moon { display: none; }
+  html.dark .theme-icon-sun { display: none; }
+  html.dark .theme-icon-moon { display: block; }
 </style>
+<script>
+(function () {
+  var k = "aidimag-ui-theme";
+  var saved = localStorage.getItem(k);
+  // Default dark; only use light when explicitly chosen.
+  if (saved !== "light") document.documentElement.classList.add("dark");
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
 <header>
-  <h1>🧠 aidimag <span id="repo"></span></h1>
+  <div class="brand">
+    <svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="dimGrad" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#2563eb"/><stop offset="55%" stop-color="#0ea5e9"/><stop offset="100%" stop-color="#06b6d4"/>
+        </linearGradient>
+        <linearGradient id="dimGradSoft" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#2563eb" stop-opacity="0.18"/><stop offset="100%" stop-color="#06b6d4" stop-opacity="0.18"/>
+        </linearGradient>
+      </defs>
+      <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#dimGradSoft)"/>
+      <g transform="translate(8 8) scale(2)" stroke="url(#dimGrad)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/>
+        <path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/>
+        <path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/>
+        <path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/>
+        <path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/>
+      </g>
+      <circle cx="49" cy="49" r="11" fill="#10b981"/>
+      <path d="M44 49.2l3.4 3.4L54.5 45" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    </svg>
+    <div class="brand-text">
+      <h1>aiDimag</h1>
+      <span class="subtitle" id="repo">Repo brain</span>
+    </div>
+  </div>
   <span class="pill" id="counts"></span>
   <div class="spacer"></div>
+  <div class="toolbar">
   <button class="primary" onclick="document.getElementById('dlg-new').showModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>New memory</button>
-  <button onclick="runMine()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5 18 9"/><path d="M2 22l8-8"/><path d="M20.5 7.5 22 6a2.83 2.83 0 0 0-4-4l-1.5 1.5"/><path d="m9 11 4 4"/><path d="M16 2 8.5 9.5"/></svg>Mine commits</button>
+  <button onclick="runMine()" title="Mine new commits since the last run (Shift+click: rescan all history)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5 18 9"/><path d="M2 22l8-8"/><path d="M20.5 7.5 22 6a2.83 2.83 0 0 0-4-4l-1.5 1.5"/><path d="m9 11 4 4"/><path d="M16 2 8.5 9.5"/></svg>Mine commits</button>
   <button class="primary" onclick="runVerify(false)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/></svg>Verify</button>
   <button onclick="runVerify(true)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="m8 11 2 2 4-4"/></svg>Verify --deep</button>
   <button onclick="runSync()" id="btn-sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>Sync</button>
@@ -77,6 +248,11 @@ export const PAGE_HTML = /* html */ `<!DOCTYPE html>
   <button onclick="openCloud()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>Cloud</button>
   <button onclick="openTickets()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>Tickets</button>
   <button onclick="load()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>Refresh</button>
+  <button class="icon" type="button" onclick="toggleTheme()" id="btn-theme" aria-label="Toggle light/dark theme">
+    <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+    <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+  </button>
+  </div>
 </header>
 <main>
   <div id="graph"></div>
@@ -139,7 +315,7 @@ export const PAGE_HTML = /* html */ `<!DOCTYPE html>
   <h3>☁ Team sync</h3>
   <div id="cloud-status" class="hint"></div>
   <label>Server URL</label>
-  <input id="cl-server" placeholder="https://aidimag-sync.fly.dev">
+  <input id="cl-server" placeholder="http://localhost:3000">
   <label>Brain (team memory name)</label>
   <input id="cl-brain" placeholder="myrepo">
   <label>Access token (stored on this machine only, never in the repo)</label>
@@ -215,8 +391,34 @@ export const PAGE_HTML = /* html */ `<!DOCTYPE html>
 <div id="toast"></div>
 
 <script>
-const COLORS = { VERIFIED: "#3fb950", UNVERIFIED: "#8a90a0", STALE: "#d29922", REFUTED: "#f85149" };
+const COLORS = { VERIFIED: "#22c55e", UNVERIFIED: "#94a3b8", STALE: "#eab308", REFUTED: "#ef4444" };
 let state = null;
+let csrfToken = null;
+
+function cssVar(name, fallback) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+function graphPalette() {
+  return {
+    VERIFIED: cssVar("--verified", COLORS.VERIFIED),
+    UNVERIFIED: cssVar("--unverified", COLORS.UNVERIFIED),
+    STALE: cssVar("--stale", COLORS.STALE),
+    REFUTED: cssVar("--refuted", COLORS.REFUTED),
+    path: cssVar("--path", "#60a5fa"),
+    link: "hsl(" + cssVar("--border", "217 33% 16%") + ")",
+    primary: "hsl(" + cssVar("--primary", "217 91% 53%") + ")",
+  };
+}
+
+function toggleTheme() {
+  const root = document.documentElement;
+  const dark = !root.classList.contains("dark");
+  root.classList.toggle("dark", dark);
+  localStorage.setItem("aidimag-ui-theme", dark ? "dark" : "light");
+  if (state) renderGraph();
+}
 
 function toast(msg) {
   const t = document.getElementById("toast");
@@ -225,6 +427,12 @@ function toast(msg) {
 }
 
 async function api(path, opts) {
+  opts = opts || {};
+  const method = (opts.method || "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") {
+    if (!csrfToken) throw new Error("missing CSRF token — reload the page");
+    opts.headers = { ...(opts.headers || {}), "X-Aidimag-Csrf-Token": csrfToken };
+  }
   const r = await fetch(path, opts);
   const body = await r.json();
   if (!r.ok) throw new Error(body.error || r.status);
@@ -233,6 +441,7 @@ async function api(path, opts) {
 
 async function load() {
   state = await api("/api/state");
+  csrfToken = state.csrfToken;
   document.getElementById("repo").textContent = state.repoRoot;
   const s = state.summary.byStatus;
   document.getElementById("counts").innerHTML =
@@ -240,7 +449,7 @@ async function load() {
   renderProposals(); renderMemories(); renderGraph();
 }
 
-function esc(s) { return s.replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c])); }
+function esc(s) { return s.replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
 
 function renderProposals() {
   const el = document.getElementById("proposals");
@@ -366,10 +575,23 @@ async function doSearch() {
 
 // ---------------------------------------------------------------- mine / sync / reindex
 
-async function runMine() {
-  toast("Mining git history…");
+async function runMine(ev) {
+  const full = ev && ev.shiftKey;
+  toast(full ? "Rescanning full git history…" : "Mining git history…");
   try {
-    const r = await api("/api/mine", { method: "POST" });
+    const r = await api("/api/mine" + (full ? "?full=1" : ""), { method: "POST" });
+    if (r.noCommits) {
+      toast("No git commits yet — make an initial commit, then try again.");
+      return;
+    }
+    if (r.noNewCommits) {
+      toast("No new commits since the last mine — Shift+click Mine commits to rescan all history.");
+      return;
+    }
+    if (r.scanned > 0 && r.proposed === 0) {
+      toast("Scanned " + r.scanned + " commit(s): none matched memory-worthy signals (try descriptive messages or dim mine --llm)");
+      return;
+    }
     toast(\`Scanned \${r.scanned} commit(s): \${r.proposed} proposal(s) queued\`);
     load();
   } catch (e) { toast("Error: " + e.message); }
@@ -379,7 +601,18 @@ async function runSync() {
   toast("Syncing…");
   try {
     const r = await api("/api/sync", { method: "POST" });
-    toast(\`Pushed \${r.pushed}, pulled \${r.pulled} (applied \${r.applied})\`);
+    const mem = (n) => n + (n === 1 ? " memory" : " memories");
+    let msg;
+    if (r.memoriesPushed) msg = "Sent " + mem(r.memoriesPushed);
+    else if (r.memoriesQueued) msg = "Already on server (" + mem(r.memoriesQueued) + " unchanged)";
+    else msg = "Nothing to send";
+    if (r.applied) msg += ", received " + r.applied + " update" + (r.applied === 1 ? "" : "s");
+    else if (r.pulled) msg += ", pulled " + r.pulled + " (already up to date locally)";
+    else msg += ", nothing new from team";
+    if (r.needsFullUploadConfirm) {
+      msg += " — run dim sync in terminal to confirm upload";
+    }
+    toast(msg);
     load();
   } catch (e) { toast("Sync: " + e.message); }
 }
@@ -397,8 +630,8 @@ async function runReindex() {
 function openCloud() {
   const c = state && state.cloud;
   document.getElementById("cloud-status").textContent = c
-    ? \`Linked: \${c.server} → brain '\${c.brain}' (\${c.hasToken ? "token stored" : "⚠ NO TOKEN"})\`
-    : "Not linked to a team server yet.";
+    ? \`Linked: \${c.server} → brain '\${c.brain}' (\${c.hasToken ? "token stored" : "⚠ NO TOKEN — paste API key and Link"})\`
+    : "Not linked to a team server yet. For local aidimag-cloud dev use http://localhost:3000";
   if (c) {
     document.getElementById("cl-server").value = c.server;
     document.getElementById("cl-brain").value = c.brain;
@@ -566,8 +799,10 @@ function renderGraph() {
     .force("center", d3.forceCenter(W / 2, H / 2))
     .force("collide", d3.forceCollide(28));
 
+  const palette = graphPalette();
+
   const link = g.append("g").selectAll("line").data(links).join("line")
-    .attr("stroke", d => d.kind === "contradicts" ? "#f85149" : "#2a2f3d")
+    .attr("stroke", d => d.kind === "contradicts" ? palette.REFUTED : palette.link)
     .attr("stroke-width", 1.2);
 
   const node = g.append("g").selectAll("g").data(nodes).join("g")
@@ -579,18 +814,18 @@ function renderGraph() {
 
   node.filter(d => d.type === "memory").append("circle")
     .attr("r", d => 7 + d.conf * 10)
-    .attr("fill", d => COLORS[d.status])
+    .attr("fill", d => palette[d.status] || palette.UNVERIFIED)
     .attr("fill-opacity", 0.85);
   node.filter(d => d.type === "path").append("rect")
     .attr("x", -7).attr("y", -7).attr("width", 14).attr("height", 14).attr("rx", 3)
-    .attr("fill", "#58a6ff").attr("fill-opacity", 0.85);
+    .attr("fill", palette.path).attr("fill-opacity", 0.85);
 
   node.append("text").attr("dy", d => d.type === "memory" ? 7 + d.conf * 10 + 12 : 22).attr("text-anchor", "middle").text(d => d.label);
 
   node.on("click", (e, d) => {
     if (d.type !== "memory") return;
     const card = document.getElementById("mem-" + d.id);
-    if (card) { card.scrollIntoView({ behavior: "smooth", block: "center" }); card.style.outline = "2px solid #1f6feb"; setTimeout(() => card.style.outline = "", 1500); }
+    if (card) { card.scrollIntoView({ behavior: "smooth", block: "center" }); card.style.outline = "2px solid " + palette.primary; setTimeout(() => card.style.outline = "", 1500); }
   });
 
   sim.on("tick", () => {

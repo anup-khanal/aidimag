@@ -1,22 +1,34 @@
 # Generating context files
 
 Not every AI tool speaks [MCP](/mcp). Many just read a file at startup — `CLAUDE.md`,
-`.cursorrules`, `.github/copilot-instructions.md`. `dim generate-context` turns your
-**trusted memory** into exactly those files, so *every* assistant benefits, MCP or not.
+`.cursorrules`, `.windsurfrules`, `AGENTS.md`, `.github/copilot-instructions.md`. 
+`dim generate-context` turns your **trusted memory** into exactly those files, so 
+*every* assistant benefits, MCP or not.
+
+::: tip Context files are opt-in
+By default, aiDimag does **not** automatically generate or update these files. You must explicitly run `dim generate-context` (or enable `--auto` mode) to create them. This means:
+- `dim init` does not create context files
+- `dim review` approving memories does not update context files
+- `dim mine` or `dim bootstrap` do not generate context files
+
+Use `--auto` (explained below) to enable automatic regeneration.
+:::
 
 ## Generate the files
 
 ```sh
-dim generate-context              # writes CLAUDE.md
-dim generate-context -f cursorrules
-dim generate-context -f copilot
-dim generate-context -f all       # all three at once
+dim generate-context                 # writes CLAUDE.md
+dim generate-context -f cursorrules  # .cursorrules (Cursor)
+dim generate-context -f copilot      # .github/copilot-instructions.md
+dim generate-context -f windsurfrules # .windsurfrules (Windsurf)
+dim generate-context -f agents       # AGENTS.md (cross-tool standard)
+dim generate-context -f all          # all five at once
 ```
 
 Output:
 
 ```
-📝 Wrote CLAUDE.md, .cursorrules, .github/copilot-instructions.md — 12 memories (3 pinned).
+📝 Wrote CLAUDE.md, .cursorrules, .windsurfrules, AGENTS.md, .github/copilot-instructions.md — 12 memories (3 pinned).
 ```
 
 ## What goes in (and what doesn't)
@@ -82,8 +94,11 @@ For most repos:
 dim generate-context --auto -f all
 ```
 
-Commit the generated files if you want teammates' non-MCP tools to pick them up from git;
-gitignore them if you'd rather each person generate locally. Either works.
+::: tip Generated files are gitignored by default
+When you run `dim init`, all generated context files (`CLAUDE.md`, `.cursorrules`, `.windsurfrules`, `AGENTS.md`, `.github/copilot-instructions.md`) are automatically added to `.gitignore`. 
+
+**To commit them to git:** Remove them from `.gitignore` if you want teammates' non-MCP tools to pick them up from git. Otherwise, each person generates locally with `--auto`.
+:::
 
 Next: **[Pre-commit checks](/guides/dim-check)**.
 

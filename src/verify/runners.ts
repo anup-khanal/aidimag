@@ -84,6 +84,16 @@ function runCommitRef(ev: Evidence, repoRoot: string): RunOutcome {
 
   if (pathSpec) {
     const paths = pathSpec.split(",").map((p) => p.trim()).filter(Boolean);
+    for (const p of paths) {
+      if (p.startsWith("/") || p.includes("..")) {
+        return {
+          evidenceId: ev.id,
+          type: ev.type,
+          result: "FAIL",
+          detail: "invalid path in COMMIT_REF evidence",
+        };
+      }
+    }
     try {
       const changed = git(["diff", "--name-only", sha, "HEAD", "--", ...paths]).trim();
       if (changed) {
