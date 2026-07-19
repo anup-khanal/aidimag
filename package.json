@@ -9,6 +9,14 @@
     "docs:preview": "vitepress preview docs"
   },
   "devDependencies": {
-    "vitepress": "^1.5.0"
+    "esbuild": "^0.28.1",
+    "vite": "^8.1.5",
+    "vitepress": "^1.6.4"
+  },
+  "overrides": {
+    "vitepress": {
+      "esbuild": ">=0.24.3",
+      "vite": ">=6.4.3"
+    }
   }
 }
