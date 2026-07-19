@@ -4,6 +4,13 @@ aiDimag has native extensions for **VSCode** and **IntelliJ IDEA** so you can br
 and verify memory without leaving your editor. Both shell out to the same `dim` CLI, so they
 always behave consistently with the terminal.
 
+::: tip Download Extensions
+**[📦 Download VS Code Extension (v1.0.0)](../releases/aidimag-vscode-1.0.0.vsix)**  
+**[📦 Download IntelliJ Plugin (v1.0.0)](../releases/aidimag-intellij-plugin-1.0.0.zip)**
+
+See installation instructions below.
+:::
+
 ::: tip Prerequisite
 Install the `dim` CLI and run `dim init` in your repo first. The extensions call `dim` under
 the hood and need it on your `PATH`.
@@ -29,8 +36,9 @@ Located in `vscode-extension/`. A prebuilt `.vsix` is included.
 
 **Install**
 
-- From the prebuilt package: `code --install-extension vscode-extension/aidimag-vscode-*.vsix`
-- To develop: open `vscode-extension/` and press `F5`; package with `vsce package`.
+1. Download [aidimag-vscode-1.0.0.vsix](../releases/aidimag-vscode-1.0.0.vsix)
+2. Install via command: `code --install-extension aidimag-vscode-1.0.0.vsix`
+3. Or in VS Code: Extensions → "..." menu → "Install from VSIX..."
 
 ## IntelliJ plugin
 
@@ -53,9 +61,10 @@ Find the actions under **Tools → aiDimag**.
 
 **Install**
 
-- From the prebuilt zip in `intellij-plugin/build/distributions/`:
-  Settings → Plugins → ⚙ → *Install Plugin from Disk…*
-- To develop: `./gradlew runIde` from `intellij-plugin/`.
+1. Download [aidimag-intellij-plugin-1.0.0.zip](../releases/aidimag-intellij-plugin-1.0.0.zip)
+2. Open IntelliJ IDEA → Settings/Preferences → Plugins
+3. Click the gear icon ⚙️ → "Install Plugin from Disk..."
+4. Select the downloaded `.zip` file and restart IDE
 
 ::: warning macOS PATH note
 JetBrains IDEs launched from Finder/Toolbox sometimes run with a minimal `PATH` that doesn't
