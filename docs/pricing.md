@@ -1,6 +1,6 @@
 # Pricing
 
-Simple licensing: **self-host for free** on small teams, or **go commercial** when you need managed cloud sync or exceed the OSS user limit.
+Simple licensing: **free for teams of 10 or fewer**, or **go commercial** for larger teams or managed cloud sync.
 
 <p class="pricing-lead">Full product on your machines for small teams — cloud adds managed sync and zero server ops.</p>
 
@@ -46,7 +46,7 @@ Simple licensing: **self-host for free** on small teams, or **go commercial** wh
 <p class="pricing-sub">For teams who want always-on sync without running a server</p>
 
 <ul class="pricing-features">
-<li>Everything in OSS — same local-first model</li>
+<li>Everything in the free tier — same local-first model</li>
 <li>Managed sync across laptops, CI, and teammates</li>
 <li>Cloud accounts, API keys, and billing portal</li>
 <li>Device login and team onboarding</li>
@@ -62,7 +62,7 @@ Simple licensing: **self-host for free** on small teams, or **go commercial** wh
 
 ---
 
-## Commercial OSS license
+## Commercial license
 
 Organizations with **more than 10 users** (anyone running `dim`, using MCP, or the dashboard in your company) need a **commercial license** under the Elastic License 2.0 — even if you self-host.
 
@@ -78,7 +78,7 @@ Anyone who runs `dim`, connects an agent via MCP, or uses the dashboard or IDE e
 
 ### Does free include the full product?
 
-Yes — every OSS feature (CLI, MCP, verification, guardrails, self-hosted sync, local dashboard). What free does **not** include is **managed cloud sync**, the **cloud account portal**, and use **above 10 users** without a commercial license.
+Yes — every feature (CLI, MCP, verification, guardrails, self-hosted sync, local dashboard). What free does **not** include is **managed cloud sync**, the **cloud account portal**, and use **above 10 users** without a commercial license.
 
 ### Self-host vs cloud?
 
@@ -93,9 +93,9 @@ Yes — every OSS feature (CLI, MCP, verification, guardrails, self-hosted sync,
 
 Yes, if your organization is within the free user limit. Above 10 users, you need a commercial license regardless of self-host vs cloud.
 
-### Is the source code available?
+### How do I get support?
 
-Yes — [github.com/anupkhanal/aidimag](https://github.com/anupkhanal/aidimag). Read, audit, and contribute under the Elastic License 2.0.
+Free users can get community support via [GitHub Issues](https://github.com/anupkhanal/aidimag/issues). Commercial license holders get priority support.
 
 ---
 
@@ -104,8 +104,8 @@ Yes — [github.com/anupkhanal/aidimag](https://github.com/anupkhanal/aidimag). 
 aiDimag is licensed under the **Elastic License 2.0** with a 10-user Additional Use Grant.
 
 - Use freely for up to 10 users per organization
-- Full source available; modify and distribute with license terms
 - Cannot offer aiDimag as a managed/hosted service to third parties (use aiDimag Cloud for that)
+- Commercial license required for organizations with more than 10 users
 - 11+ users require a commercial license
 
 [Read the full license →](https://github.com/anupkhanal/aidimag/blob/main/LICENSE)
