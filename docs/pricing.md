@@ -32,7 +32,7 @@ Simple licensing: **free for teams of 10 or fewer**, or **go commercial** for la
 <li>Teams over 10 users without a commercial license</li>
 </ul>
 
-<p class="pricing-cta"><a class="pricing-button" href="/aidimag/getting-started">Get started</a></p>
+<p class="pricing-cta"><a class="pricing-button" href="/getting-started">Get started</a></p>
 
 </div>
 

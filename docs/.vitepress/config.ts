@@ -32,7 +32,7 @@ export default defineConfig({
           "Your codebase remembers its decisions, conventions, gotchas, and rules — and proves they're still true.",
       },
     ],
-    ["meta", { property: "og:image", content: "/aidimag/logo.svg" }],
+    ["meta", { property: "og:image", content: "/logo.svg" }],
     ["meta", { name: "twitter:card", content: "summary" }],
   ],
 
