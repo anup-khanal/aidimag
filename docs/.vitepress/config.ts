@@ -103,7 +103,7 @@ export default defineConfig({
       },
     ],
 
-    socialLinks: [{ icon: "github", link: "https://github.com/anupkhanal/aidimag" }],
+    socialLinks: [{ icon: "github", link: "https://github.com/anup-khanal/aidimag" }],
 
     search: { provider: "local" },
 
@@ -113,7 +113,7 @@ export default defineConfig({
     },
 
     editLink: {
-      pattern: "https://github.com/anupkhanal/aidimag/edit/main/docs/:path",
+      pattern: "https://github.com/anup-khanal/aidimag/edit/main/docs/:path",
       text: "Edit this page on GitHub",
     },
   },

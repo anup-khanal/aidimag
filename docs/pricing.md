@@ -95,7 +95,7 @@ Yes, if your organization is within the free user limit. Above 10 users, you nee
 
 ### How do I get support?
 
-Free users can get community support via [GitHub Issues](https://github.com/anupkhanal/aidimag/issues). Commercial license holders get priority support.
+Free users can get community support via [GitHub Issues](https://github.com/anup-khanal/aidimag/issues). Commercial license holders get priority support.
 
 ---
 
@@ -108,4 +108,4 @@ aiDimag is licensed under the **Elastic License 2.0** with a 10-user Additional 
 - Commercial license required for organizations with more than 10 users
 - 11+ users require a commercial license
 
-[Read the full license →](https://github.com/anupkhanal/aidimag/blob/main/LICENSE)
+[Read the full license →](https://github.com/anup-khanal/aidimag/blob/main/LICENSE)

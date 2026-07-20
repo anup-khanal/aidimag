@@ -29,7 +29,9 @@ aiDimag installs **two identical commands**: `dim` (short, day-to-day) and `aidi
 (explicit). Use whichever you like — this documentation uses `dim`.
 :::
 
-### Option A — from npm (once published)
+### Option A — from npm
+
+**[View on npm →](https://www.npmjs.com/package/aidimag)**
 
 ```sh
 npm install -g aidimag
