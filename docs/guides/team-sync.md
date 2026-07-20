@@ -21,14 +21,51 @@ This page covers the **self-hosted** `dim serve` option.
 
 ## Set up a server
 
+### Quick start (local testing)
+
 Run it anywhere reachable — a laptop, a VPS, Fly.io:
 
 ```sh
 dim serve --token <shared-secret> --db ./team-sync.db --port 8787
 ```
 
-(See `deploy/` in the repo for a Dockerfile + Fly.io config — about 10 minutes to a private
-hosted server.)
+### Production deployment
+
+For production use, deploy the sync server using Docker. The repository includes deployment configurations in the `deploy/` directory.
+
+#### Option A: Fly.io (recommended, ~$2/mo or free tier)
+
+```sh
+cd deploy
+fly launch --copy-config --no-deploy            # creates the app from fly.toml
+fly volumes create aidimag_data --size 1        # persistent SQLite volume
+fly secrets set AIDIMAG_SYNC_TOKEN=$(openssl rand -hex 32)   # ADMIN token — save it!
+cd .. && npm run build && fly deploy --config deploy/fly.toml --dockerfile deploy/Dockerfile
+```
+
+Your server will be available at: `https://aidimag-sync.fly.dev`
+
+#### Option B: Docker on any host (Railway, Render, VPS)
+
+```sh
+npm run build
+docker build -f deploy/Dockerfile -t aidimag-sync .
+docker run -d -p 8787:8787 -v aidimag_data:/data \
+  -e AIDIMAG_SYNC_TOKEN=<admin-token> aidimag-sync
+```
+
+**Important:** Put HTTPS in front (Caddy/Traefik/cloud load balancer) before real use — tokens travel as Bearer headers.
+
+#### Deployment files
+
+The `deploy/` directory contains:
+- **`Dockerfile`** — Container image for the sync server
+- **`fly.toml`** — Fly.io configuration
+- **`README.md`** — Detailed deployment instructions
+
+::: tip Security note
+The `AIDIMAG_SYNC_TOKEN` is your admin token. Store it securely (password manager, secrets vault). Never commit it to the repository. Use this token to mint brain-scoped keys for team members (see API keys section below).
+:::
 
 ## Link a repo
 
