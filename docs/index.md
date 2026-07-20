@@ -56,8 +56,8 @@ that have since become false.
   the agent must obey.
 - All of it is fed to your AI tools automatically.
 
-Head to **[Getting started](/getting-started)** to set it up in your repo, or read
-**[What is aiDimag?](/introduction)** for the why.
+Head to **[Getting started](https://aidimag.com/getting-started)** to set it up in your repo, or read
+**[What is aiDimag?](https://aidimag.com/introduction)** for the why.
 
 ---
 

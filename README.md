@@ -83,14 +83,14 @@ verified memory into `CLAUDE.md` / `.cursorrules` / `.github/copilot-instruction
 
 ## Documentation
 
-Full documentation available at: **[github.com/anupkhanal/aidimag](https://github.com/anupkhanal/aidimag)**
+Full documentation available at: **[aidimag.com](https://aidimag.com)**
 
-- [Getting Started](https://github.com/anupkhanal/aidimag/blob/main/docs/getting-started.md)
-- [Quick Start](https://github.com/anupkhanal/aidimag/blob/main/docs/quickstart.md)
-- [CLI Reference](https://github.com/anupkhanal/aidimag/blob/main/docs/cli-reference.md)
-- [MCP Integration](https://github.com/anupkhanal/aidimag/blob/main/docs/mcp.md)
-- [Team Sync Guide](https://github.com/anupkhanal/aidimag/blob/main/docs/guides/team-sync.md)
-- [Configuration](https://github.com/anupkhanal/aidimag/blob/main/docs/configuration.md)
+- [Getting Started](https://aidimag.com/getting-started)
+- [Quick Start](https://aidimag.com/quickstart)
+- [CLI Reference](https://aidimag.com/cli-reference)
+- [MCP Integration](https://aidimag.com/mcp)
+- [Team Sync Guide](https://aidimag.com/guides/team-sync)
+- [Configuration](https://aidimag.com/configuration)
 
 ## Author
 
