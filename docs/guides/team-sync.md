@@ -31,21 +31,7 @@ dim serve --token <shared-secret> --db ./team-sync.db --port 8787
 
 ### Production deployment
 
-For production use, deploy the sync server using Docker. The repository includes deployment configurations in the `deploy/` directory.
-
-#### Option A: Fly.io (recommended, ~$2/mo or free tier)
-
-```sh
-cd deploy
-fly launch --copy-config --no-deploy            # creates the app from fly.toml
-fly volumes create aidimag_data --size 1        # persistent SQLite volume
-fly secrets set AIDIMAG_SYNC_TOKEN=$(openssl rand -hex 32)   # ADMIN token — save it!
-cd .. && npm run build && fly deploy --config deploy/fly.toml --dockerfile deploy/Dockerfile
-```
-
-Your server will be available at: `https://aidimag-sync.fly.dev`
-
-#### Option B: Docker on any host (Railway, Render, VPS)
+For production use, deploy the sync server using Docker on any host (Railway, Render, VPS, Fly.io, etc.).
 
 ```sh
 npm run build
