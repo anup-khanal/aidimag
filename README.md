@@ -1,17 +1,38 @@
-# aiDimag
+<div align="center">
 
-> Persistent, verified memory for AI coding agents. CLI: **`dim`**.
+<img src="docs/public/logo.svg" alt="AI Dimag Logo" width="120" height="120">
 
-aiDimag gives any MCP-compatible agent (Claude Code, Cursor, Copilot, …) a memory of your
-codebase that survives across sessions — decisions, conventions, gotchas, failed approaches,
-**guardrails**, and reusable **skills** — stored as **falsifiable claims with grounding
-evidence** in `.aidimag/` next to your code. It also generates the static context files
-(`CLAUDE.md`, `.cursorrules`, …) that *non-MCP* tools read, so every AI tool benefits.
+# AI Dimag — Verified Memory for AI Coding Agents
 
-What makes it different: **memories are verified, not just stored.** Every memory carries
-evidence (a shell check, an anchored commit, a test) that `dim verify` re-runs against the
-current repo — beliefs that stop being true go **STALE** instead of silently misleading
-your AI.
+**Your codebase remembers its decisions, conventions, and rules — and proves they're still true.**
+
+[![npm version](https://img.shields.io/npm/v/aidimag?color=blue&logo=npm)](https://www.npmjs.com/package/aidimag)
+[![License](https://img.shields.io/badge/license-Elastic_2.0-blue.svg)](./LICENSE)
+[![Documentation](https://img.shields.io/badge/docs-aidimag.com-blue)](https://aidimag.com)
+[![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
+
+[**Documentation**](https://aidimag.com) • [**Getting Started**](https://aidimag.com/getting-started) • [**AI Dimag Cloud**](https://cloud.aidimag.com) • [**Pricing**](https://aidimag.com/pricing)
+
+</div>
+
+---
+
+## What is AI Dimag?
+
+**AI Dimag** gives any MCP-compatible agent (Claude, Cursor, Copilot, Windsurf…) a **persistent memory** of your codebase that survives across sessions — decisions, conventions, gotchas, failed approaches, **guardrails**, and reusable **skills** — stored as **falsifiable claims with grounding evidence** in `.aidimag/` next to your code.
+
+### 🎯 The Difference: Verified, Not Just Stored
+
+Every memory carries **evidence** (a shell check, an anchored commit, a test) that `dim verify` re-runs against the current repo. Beliefs that stop being true go **STALE** instead of silently misleading your AI.
+
+### ✨ Works with Every AI Tool
+
+- **MCP tools** (Claude, Cursor, etc.) get real-time memory via the MCP server
+- **Non-MCP tools** (Copilot, Windsurf, etc.) get static context files (`.cursorrules`, `CLAUDE.md`, `AGENTS.md`, etc.)
+
+<div align="center">
+<img src="docs/public/hero-illustration.svg" alt="AI Dimag Flow" width="600">
+</div>
 
 ## Install
 
@@ -21,7 +42,7 @@ npm install -g aidimag
 
 Requires Node 18+. Ships two equivalent binaries: `dim` (short) and `aidimag`.
 
-## Quick start
+## 🚀 Quick Start
 
 ```sh
 cd your-repo
@@ -36,10 +57,10 @@ dim verify                  # re-run all evidence; stale beliefs get flagged
 dim brief                   # session-start briefing: in-scope memory, guardrails, gaps
 
 # For non-MCP tools (Copilot, Cursor without MCP, etc.):
-dim generate-context --format all --auto   # creates .cursorrules, CLAUDE.md, copilot-instructions.md
+dim generate-context --format all --auto   # creates .cursorrules, CLAUDE.md, AGENTS.md, etc.
 ```
 
-## Hook it up to your AI agent (MCP)
+## 🔌 Connect to Your AI Agent (MCP)
 
 Add to your agent config (e.g. `.mcp.json` for Claude Code):
 
@@ -55,48 +76,84 @@ Add to your agent config (e.g. `.mcp.json` for Claude Code):
 }
 ```
 
-Agents get `memory_search`, `memory_propose`, `context_note` (live in-chat fact capture),
-`memory_critique` (a second critic grounded in verified memory), session-start briefings,
-session-end extraction, and more. For non-MCP tools, `dim generate-context -f all` renders
-verified memory into `CLAUDE.md` / `.cursorrules` / `.github/copilot-instructions.md`
-(`--auto` keeps them refreshed).
+**MCP Tools** get `memory_search`, `memory_propose`, `context_note` (live in-chat fact capture), `memory_critique` (a second critic grounded in verified memory), session-start briefings, session-end extraction, and more.
 
-## Highlights
+**Non-MCP Tools**: `dim generate-context -f all` renders verified memory into `.cursorrules`, `CLAUDE.md`, `AGENTS.md`, `.windsurfrules`, and `.github/copilot-instructions.md` (`--auto` keeps them refreshed).
 
-- **Human-gated capture** — commits, PRs, AI-chat transcripts, and pasted docs are mined
-  into *proposals*; nothing enters memory until you approve it in `dim review`
-  (auto-triaged best-first, `approve all --min-score 0.7` for batches).
-- **Verification lifecycle** — `STATIC_CHECK` / `COMMIT_REF` / `TEST_RESULT` /
-  `EXEC_TRACE` / `HUMAN_ATTESTED` evidence; failing evidence flips memories to STALE and
-  auto-drafts a recovery proposal. Confidence decays without re-confirmation.
-- **Evidence trust gate** — shell-command evidence that arrives via team sync is **never
-  executed** until you inspect and approve it (`dim verify --trust`).
-- **Hybrid semantic recall** — FTS5 keyword + vector KNN (OpenAI or local Ollama,
-  auto-detected; works keyword-only with neither).
-- **Guardrails & skills** — behavioral rules (`never` / `ask-first` / `always`) and
-  step-by-step procedures, enforced by `dim check` (pre-commit) and `memory_critique`.
-- **Team mode, self-hosted** — `dim serve` + `dim sync`: local-first replicas, device-code
-  login, brain-scoped API keys, hashed credentials, cross-machine verification consensus.
-- **Knowledgebase inbox** — drop design docs / ADRs / PDFs / DOCX into `knowledge/` and
-  they're summarized into reviewed, pinned memories.
-- **Web dashboard** (`dim ui`) plus VS Code and IntelliJ extensions.
+## ✨ Key Features
 
-## Documentation
+### 🛡️ Human-Gated Capture
+Commits, PRs, AI-chat transcripts, and pasted docs are mined into *proposals*. Nothing enters memory until you approve it in `dim review` (auto-triaged best-first, `approve all --min-score 0.7` for batches).
 
-Full documentation available at: **[aidimag.com](https://aidimag.com)**
+### ✅ Verification Lifecycle
+`STATIC_CHECK` / `COMMIT_REF` / `TEST_RESULT` / `EXEC_TRACE` / `HUMAN_ATTESTED` evidence. Failing evidence flips memories to STALE and auto-drafts a recovery proposal. Confidence decays without re-confirmation.
 
-- [Getting Started](https://aidimag.com/getting-started)
-- [Quick Start](https://aidimag.com/quickstart)
+### 🔒 Evidence Trust Gate
+Shell-command evidence that arrives via team sync is **never executed** until you inspect and approve it (`dim verify --trust`).
+
+### 🔍 Hybrid Semantic Recall
+FTS5 keyword + vector KNN (OpenAI or local Ollama, auto-detected; works keyword-only with neither).
+
+### 🚦 Guardrails & Skills
+Behavioral rules (`never` / `ask-first` / `always`) and step-by-step procedures, enforced by `dim check` (pre-commit) and `memory_critique`.
+
+### 👥 Team Mode, Self-Hosted
+`dim serve` + `dim sync`: local-first replicas, device-code login, brain-scoped API keys, hashed credentials, cross-machine verification consensus.
+
+### 📚 Knowledgebase Inbox
+Drop design docs / ADRs / PDFs / DOCX into `knowledge/` and they're summarized into reviewed, pinned memories.
+
+### 🎨 Web Dashboard & Extensions
+`dim ui` plus VS Code and IntelliJ extensions.
+
+## 📖 Documentation
+
+<table>
+<tr>
+<td width="33%">
+
+**Getting Started**
+- [Installation](https://aidimag.com/getting-started)
+- [Quick Start (5 min)](https://aidimag.com/quickstart)
+- [Cloud Sync](https://aidimag.com/cloud-quickstart)
+
+</td>
+<td width="33%">
+
+**Reference**
 - [CLI Reference](https://aidimag.com/cli-reference)
 - [MCP Integration](https://aidimag.com/mcp)
-- [Team Sync Guide](https://aidimag.com/guides/team-sync)
 - [Configuration](https://aidimag.com/configuration)
 
-## Author
+</td>
+<td width="33%">
 
-**Anup Khanal**
+**Guides**
+- [Team Sync](https://aidimag.com/guides/team-sync)
+- [Guardrails](https://aidimag.com/guides/guardrails)
+- [Context Files](https://aidimag.com/guides/generate-context)
 
-## License
+</td>
+</tr>
+</table>
 
-[Elastic License 2.0](./LICENSE) — free for teams of 10 or fewer users. Commercial license required for larger organizations. Cannot be offered as a managed service to third parties. See [pricing & licensing](docs/pricing.md) for details.
+Full documentation: **[aidimag.com](https://aidimag.com)**
+
+---
+
+## 💰 Pricing
+
+**Free for teams of 10 or fewer users** under the [Elastic License 2.0](./LICENSE).
+
+For larger teams or commercial use beyond this limit, a commercial license is required. See [**Pricing & Licensing**](https://aidimag.com/pricing) for details.
+
+---
+
+<div align="center">
+
+**Built by [Anup Khanal](https://github.com/anupkhanal)**
+
+[Website](https://aidimag.com) • [Documentation](https://aidimag.com) • [Cloud](https://cloud.aidimag.com) • [npm](https://www.npmjs.com/package/aidimag) • [License](./LICENSE)
+
+</div>
 
