@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/public/logo.svg" alt="AI Dimag Logo" width="120" height="120">
+<img src="assets/logo.svg" alt="AI Dimag Logo" width="120" height="120">
 
 # AI Dimag — Verified Memory for AI Coding Agents
 
@@ -31,7 +31,7 @@ Every memory carries **evidence** (a shell check, an anchored commit, a test) th
 - **Non-MCP tools** (Copilot, Windsurf, etc.) get static context files (`.cursorrules`, `CLAUDE.md`, `AGENTS.md`, etc.)
 
 <div align="center">
-<img src="docs/public/hero-illustration.svg" alt="AI Dimag Flow" width="600">
+<img src="assets/hero-illustration.svg" alt="AI Dimag Flow" width="600">
 </div>
 
 ## Install
