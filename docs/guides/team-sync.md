@@ -29,9 +29,9 @@ Run it anywhere reachable — a laptop, a VPS, Fly.io:
 dim serve --token <shared-secret> --db ./team-sync.db --port 8787
 ```
 
-### Production deployment
+### Remote deployment
 
-For production use, deploy the sync server using Docker on any host (Railway, Render, VPS, Fly.io, etc.).
+Deploy the sync server using Docker on any host (Railway, Render, VPS, Fly.io, etc.).
 
 ```sh
 npm run build
