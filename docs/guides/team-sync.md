@@ -62,8 +62,7 @@ dim cloud link --server http://your-server:8787 --brain myrepo --token <shared-s
 dim sync
 ```
 
-The server URL and brain name go in `.aidimag/config.json` (safe to commit). The **token**
-goes in `~/.aidimag/credentials.json` — never in the repo. So onboarding a teammate is:
+The server URL, brain name, and **token** all go in `.aidimag/config.json`. This file is **gitignored by default** (`dim init` adds it to `.aidimag/.gitignore`). So onboarding a teammate is:
 
 ```sh
 dim init

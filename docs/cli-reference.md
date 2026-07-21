@@ -396,10 +396,16 @@ dim sync
 
 ### `dim login` / `dim logout`
 
-Device-code login: approve this machine in the browser; the token is saved locally.
+Device-code login: approve this machine in the browser; the token is saved to `.aidimag/config.json` (per-project). Requires the repo to be linked first with `dim cloud link`.
 
 ```sh
+# First link the repo (without token)
+dim cloud link --server https://cloud.aidimag.com --brain myrepo-abc123
+
+# Then login via browser
 dim login
+
+# Logout removes the token from config
 dim logout
 ```
 

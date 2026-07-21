@@ -25,7 +25,7 @@ Agents always query your local SQLite copy. Cloud is sync only — not a remote 
 4. In your project → **Keys** tab → **Create API key** → copy the `aidimag_sk_…` token (shown once)
 
 ::: warning Keep your API key secret
-The key goes in `~/.aidimag/credentials.json` on your machine, never in git. Each team member gets their own key from the dashboard.
+The token is stored per-project in `.aidimag/config.json`. Add this file to `.gitignore` to keep tokens private (done automatically by `dim init`). Each team member gets their own key from the dashboard.
 :::
 
 ::: tip Self-hosting?
@@ -67,8 +67,8 @@ dim cloud link \
 dim sync
 ```
 
-- **Committed:** `.aidimag/config.json` (server URL + brain ID only)
-- **Private:** token in `~/.aidimag/credentials.json`
+- **`.aidimag/config.json`** stores server URL, brain ID, and token
+- **Gitignored by default** — `dim init` adds `config.json` to `.aidimag/.gitignore`
 
 Verify the connection:
 

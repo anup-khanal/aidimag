@@ -1,16 +1,13 @@
 # Configuration
 
-aiDimag keeps repo settings in **`.aidimag/config.json`**. This file is **safe to commit** —
-it never contains secrets (tokens live in `~/.aidimag/credentials.json` instead). Committing
-it means teammates inherit the same settings.
+aiDimag keeps repo settings in **`.aidimag/config.json`**. This file contains server URL, brain ID, and authentication tokens. **By default, it's gitignored** — `dim init` automatically adds `config.json` to `.aidimag/.gitignore` to prevent committing tokens. You can commit the server/brain config separately if needed for team coordination.
 
 ## Where settings live
 
 | Location | Contents | Committed? |
 |---|---|---|
-| `.aidimag/config.json` | Repo settings (sync server, tickets, context, checks) | ✅ yes (no secrets) |
+| `.aidimag/config.json` | Repo settings (sync server, brain, token, tickets, context, checks) | ❌ gitignored (contains token) |
 | `.aidimag/memory.db` | The memory store | ❌ gitignored |
-| `~/.aidimag/credentials.json` | Auth tokens | ❌ never in the repo |
 
 ## Example `config.json`
 
@@ -21,10 +18,9 @@ it means teammates inherit the same settings.
     "format": "all"
   },
   "preCommitCheck": "warn",
-  "cloud": {
-    "server": "http://your-server:8787",
-    "brain": "myrepo"
-  },
+  "server": "https://cloud.aidimag.com",
+  "brain": "myrepo-abc123",
+  "token": "aidimag_sk_...",
   "tickets": {
     "provider": "github",
     "branch": { "pattern": "^(feature|fix)/[A-Z]+-\\d+", "enforce": "warn" }
@@ -61,10 +57,9 @@ Controls the optional [`pre-commit` hook](/guides/dim-check).
 | `"warn"` / `true` | Print violations, allow the commit |
 | `"block"` | Print violations and **block** the commit on a hard violation |
 
-### `cloud`
+### `server`, `brain`, `token`
 
-Set by `dim cloud link`. The server URL and brain name for [team sync](/guides/team-sync).
-No token here — that's in your credentials file.
+Set by `dim cloud link` or `dim login`. The server URL, brain name, and authentication token for [team sync](/guides/team-sync). The token is stored per-project and gitignored by default.
 
 ### `tickets`
 
