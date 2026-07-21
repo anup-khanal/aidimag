@@ -34,6 +34,27 @@ export default defineConfig({
     ],
     ["meta", { property: "og:image", content: "/logo.svg" }],
     ["meta", { name: "twitter:card", content: "summary" }],
+    [
+      "script",
+      {
+        async: "",
+        src: "https://www.googletagmanager.com/gtag/js?id=G-TGYE1Y8YGJ",
+      },
+    ],
+    [
+      "script",
+      {},
+      `window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('consent', 'default', {
+  'analytics_storage': 'denied',
+  'ad_storage': 'denied',
+  'ad_user_data': 'denied',
+  'ad_personalization': 'denied'
+});
+gtag('config', 'G-XXXXXXXXXX');`,
+    ],
   ],
 
   themeConfig: {
