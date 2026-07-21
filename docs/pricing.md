@@ -66,7 +66,7 @@ Simple licensing: **free for teams of 10 or fewer**, or **go commercial** for la
 
 Organizations with **more than 10 users** (anyone running `dim`, using MCP, or the dashboard in your company) need a **commercial license** under the Elastic License 2.0 — even if you self-host.
 
-We’re not publishing tier tables here. [Open a GitHub issue](https://github.com/anupkhanal/aidimag/issues) with the `licensing` label and we’ll help you get compliant.
+We’re not publishing tier tables here. [Open a GitHub issue](https://github.com/anup-khanal/aidimag/issues) with the `licensing` label and we’ll help you get compliant.
 
 ---
 

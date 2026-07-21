@@ -129,7 +129,7 @@ gtag('config', 'G-TGYE1Y8YGJ');`,
 
     footer: {
       message: "Licensed under Elastic License 2.0 — free for teams of 10 or fewer users.",
-      copyright: "Copyright © 2025 Anup Khanal",
+      copyright: "Copyright © 2026 Anup Khanal",
     },
 
     editLink: {
