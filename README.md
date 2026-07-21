@@ -151,7 +151,7 @@ For larger teams or commercial use beyond this limit, a commercial license is re
 
 <div align="center">
 
-**Built by [Anup Khanal](https://github.com/anupkhanal)**
+**Built by [Anup Khanal](https://github.com/anup-khanal)**
 
 [Website](https://aidimag.com) • [Documentation](https://aidimag.com) • [Cloud](https://cloud.aidimag.com) • [npm](https://www.npmjs.com/package/aidimag) • [License](./LICENSE)
 
