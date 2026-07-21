@@ -53,7 +53,7 @@ gtag('consent', 'default', {
   'ad_user_data': 'denied',
   'ad_personalization': 'denied'
 });
-gtag('config', 'G-XXXXXXXXXX');`,
+gtag('config', 'G-TGYE1Y8YGJ');`,
     ],
   ],
 
