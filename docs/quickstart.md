@@ -1,3 +1,21 @@
+---
+title: Quick Start Guide | 5-Minute aiDimag Tutorial
+description: Get started with aiDimag in 5 minutes. Learn to remember facts, verify claims, search memory, and connect AI agents with this hands-on tutorial.
+head:
+  - - meta
+    - name: keywords
+      content: aiDimag quickstart, 5 minute tutorial, dim tutorial, quick start guide, getting started fast, aiDimag examples
+  - - meta
+    - property: og:title
+      content: Quick Start - 5-Minute aiDimag Tutorial
+  - - meta
+    - property: og:url
+      content: https://aidimag.com/quickstart
+  - - link
+    - rel: canonical
+      href: https://aidimag.com/quickstart
+---
+
 # Quick start (5 minutes)
 
 A hands-on tour from zero to a verified, self-correcting memory. Run these in any git repo

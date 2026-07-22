@@ -3,6 +3,7 @@ import { defineConfig } from "vitepress";
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: "AI Dimag",
+  titleTemplate: ":title | AI Dimag - Verified Memory for AI Coding Agents",
   description:
     "aiDimag — persistent, verified memory for AI coding agents. Plain-English docs for the dim CLI, MCP server, IDE extensions, and team sync.",
   lang: "en-US",
@@ -16,13 +17,24 @@ export default defineConfig({
 
   appearance: "dark",
 
+  sitemap: {
+    hostname: "https://aidimag.com",
+  },
+
   head: [
     ["link", { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
+    ["link", { rel: "canonical", href: "https://aidimag.com" }],
     ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
     ["link", { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" }],
     ["meta", { name: "theme-color", content: "#0b1220" }],
     ["meta", { name: "color-scheme", content: "light dark" }],
+    ["meta", { name: "viewport", content: "width=device-width, initial-scale=1.0" }],
+    ["meta", { name: "robots", content: "index, follow" }],
+    ["meta", { name: "author", content: "Anup Khanal" }],
+    ["meta", { name: "keywords", content: "AI coding assistant, AI memory, code memory, AI agent, verified memory, coding agent, Claude Code, Cursor, GitHub Copilot, MCP, Model Context Protocol, dim CLI, aiDimag, codebase memory, AI tools" }],
     ["meta", { property: "og:type", content: "website" }],
+    ["meta", { property: "og:site_name", content: "AI Dimag" }],
+    ["meta", { property: "og:url", content: "https://aidimag.com" }],
     ["meta", { property: "og:title", content: "AI Dimag — verified memory for AI coding agents" }],
     [
       "meta",
@@ -32,8 +44,13 @@ export default defineConfig({
           "Your codebase remembers its decisions, conventions, gotchas, and rules — and proves they're still true.",
       },
     ],
-    ["meta", { property: "og:image", content: "/logo.svg" }],
-    ["meta", { name: "twitter:card", content: "summary" }],
+    ["meta", { property: "og:image", content: "https://aidimag.com/logo.svg" }],
+    ["meta", { property: "og:image:alt", content: "AI Dimag logo" }],
+    ["meta", { name: "twitter:card", content: "summary_large_image" }],
+    ["meta", { name: "twitter:site", content: "@aidimag" }],
+    ["meta", { name: "twitter:title", content: "AI Dimag — verified memory for AI coding agents" }],
+    ["meta", { name: "twitter:description", content: "Your codebase remembers its decisions, conventions, gotchas, and rules — and proves they're still true." }],
+    ["meta", { name: "twitter:image", content: "https://aidimag.com/logo.svg" }],
     [
       "script",
       {
@@ -54,6 +71,35 @@ gtag('consent', 'default', {
   'ad_personalization': 'denied'
 });
 gtag('config', 'G-TGYE1Y8YGJ');`,
+    ],
+    [
+      "script",
+      { type: "application/ld+json" },
+      JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "AI Dimag",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Cross-platform",
+        "description": "Persistent, verified memory for AI coding agents. Your codebase remembers its decisions, conventions, gotchas, and rules — and proves they're still true.",
+        "url": "https://aidimag.com",
+        "author": {
+          "@type": "Person",
+          "name": "Anup Khanal"
+        },
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD",
+          "description": "Free for teams of 10 or fewer users"
+        },
+        "softwareVersion": "1.0.0",
+        "aggregateRating": {
+          "@type": "AggregateRating",
+          "ratingValue": "5",
+          "ratingCount": "1"
+        }
+      })
     ],
   ],
 

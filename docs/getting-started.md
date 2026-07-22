@@ -1,3 +1,21 @@
+---
+title: Install & Setup aiDimag | Getting Started Guide
+description: Complete installation and setup guide for aiDimag. Learn how to install the dim CLI, initialize your repository, and connect AI coding agents in minutes.
+head:
+  - - meta
+    - name: keywords
+      content: aiDimag installation, dim CLI setup, install aiDimag, getting started, AI agent setup, MCP integration, npm install aidimag
+  - - meta
+    - property: og:title
+      content: Install & Setup aiDimag - Getting Started Guide
+  - - meta
+    - property: og:url
+      content: https://aidimag.com/getting-started
+  - - link
+    - rel: canonical
+      href: https://aidimag.com/getting-started
+---
+
 # Install & setup
 
 This page gets aiDimag running in your repository.

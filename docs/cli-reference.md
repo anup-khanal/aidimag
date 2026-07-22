@@ -1,3 +1,21 @@
+---
+title: CLI Reference | Complete dim Command Guide
+description: Complete reference for all dim CLI commands. Learn how to use dim init, remember, recall, verify, review, and all other aiDimag commands with examples.
+head:
+  - - meta
+    - name: keywords
+      content: dim CLI, aiDimag commands, dim reference, CLI documentation, dim init, dim remember, dim recall, dim verify, command line interface
+  - - meta
+    - property: og:title
+      content: CLI Reference - Complete dim Command Guide
+  - - meta
+    - property: og:url
+      content: https://aidimag.com/cli-reference
+  - - link
+    - rel: canonical
+      href: https://aidimag.com/cli-reference
+---
+
 # CLI reference
 
 Every `dim` command, with plain-English descriptions and examples. The `dim` and `aidimag`

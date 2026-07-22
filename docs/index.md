@@ -1,5 +1,23 @@
 ---
 layout: home
+title: AI Dimag - Verified Memory for AI Coding Agents
+description: Your codebase remembers its decisions, conventions, gotchas, and rules — and proves they're still true. Free for teams of 10 or fewer users.
+head:
+  - - meta
+    - name: keywords
+      content: AI coding assistant, AI memory, verified memory, coding agent, Claude Code, Cursor, GitHub Copilot, MCP, dim CLI, aiDimag, codebase memory
+  - - meta
+    - property: og:title
+      content: AI Dimag - Verified Memory for AI Coding Agents
+  - - meta
+    - property: og:description
+      content: Your codebase remembers its decisions, conventions, gotchas, and rules — and proves they're still true.
+  - - meta
+    - property: og:url
+      content: https://aidimag.com
+  - - link
+    - rel: canonical
+      href: https://aidimag.com
 
 hero:
   name: AI Dimag

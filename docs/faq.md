@@ -1,3 +1,21 @@
+---
+title: FAQ & Troubleshooting | aiDimag Help & Common Questions
+description: Frequently asked questions about aiDimag. Get answers about privacy, API keys, compatibility, troubleshooting, and common issues.
+head:
+  - - meta
+    - name: keywords
+      content: aiDimag FAQ, troubleshooting, common questions, help, support, aiDimag issues, dim problems, setup help
+  - - meta
+    - property: og:title
+      content: FAQ & Troubleshooting - aiDimag Help
+  - - meta
+    - property: og:url
+      content: https://aidimag.com/faq
+  - - link
+    - rel: canonical
+      href: https://aidimag.com/faq
+---
+
 # FAQ & troubleshooting
 
 ## General

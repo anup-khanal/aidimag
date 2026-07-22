@@ -1,3 +1,21 @@
+---
+title: Pricing & Licensing | Free for Teams of 10 or Fewer
+description: aiDimag pricing - Free for teams of 10 or fewer users under Elastic License 2.0. Self-hosted or managed cloud sync options available.
+head:
+  - - meta
+    - name: keywords
+      content: aiDimag pricing, free AI tool, Elastic License 2.0, team pricing, commercial license, self-hosted, cloud sync pricing
+  - - meta
+    - property: og:title
+      content: Pricing & Licensing - Free for Small Teams
+  - - meta
+    - property: og:url
+      content: https://aidimag.com/pricing
+  - - link
+    - rel: canonical
+      href: https://aidimag.com/pricing
+---
+
 # Pricing
 
 Simple licensing: **free for teams of 10 or fewer**, or **go commercial** for larger teams or managed cloud sync.

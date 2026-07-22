@@ -1,3 +1,21 @@
+---
+title: How It Works | aiDimag Architecture & Memory Flow
+description: Learn how aiDimag works under the hood - SQLite storage, knowledge capture, verification system, and memory delivery to AI agents.
+head:
+  - - meta
+    - name: keywords
+      content: aiDimag architecture, how aiDimag works, memory flow, SQLite storage, verification system, knowledge capture
+  - - meta
+    - property: og:title
+      content: How It Works - aiDimag Architecture
+  - - meta
+    - property: og:url
+      content: https://aidimag.com/how-it-works
+  - - link
+    - rel: canonical
+      href: https://aidimag.com/how-it-works
+---
+
 # How it works
 
 A plain-English tour of what happens under the hood. You don't need this to use aiDimag,

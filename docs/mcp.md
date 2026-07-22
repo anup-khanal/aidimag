@@ -1,3 +1,21 @@
+---
+title: MCP Integration | Connect aiDimag to Claude Code, Cursor & Copilot
+description: Learn how to integrate aiDimag with AI coding agents using the Model Context Protocol (MCP). Setup guides for Claude Code, Cursor, and GitHub Copilot.
+head:
+  - - meta
+    - name: keywords
+      content: MCP integration, Model Context Protocol, Claude Code setup, Cursor integration, GitHub Copilot, aiDimag MCP server, AI agent integration
+  - - meta
+    - property: og:title
+      content: MCP Integration - Connect AI Coding Agents
+  - - meta
+    - property: og:url
+      content: https://aidimag.com/mcp
+  - - link
+    - rel: canonical
+      href: https://aidimag.com/mcp
+---
+
 # MCP integration
 
 aiDimag ships an [MCP](https://modelcontextprotocol.io) server so any MCP-capable AI agent

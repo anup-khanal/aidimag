@@ -1,3 +1,21 @@
+---
+title: Core Concepts | aiDimag Memory System Explained
+description: Understand aiDimag's core concepts - memory, kinds, status, evidence, confidence, and decay. Learn how verified memory works for AI coding agents.
+head:
+  - - meta
+    - name: keywords
+      content: aiDimag concepts, memory system, evidence types, confidence decay, verified memory, guardrails, skills, pinned memories
+  - - meta
+    - property: og:title
+      content: Core Concepts - aiDimag Memory System
+  - - meta
+    - property: og:url
+      content: https://aidimag.com/concepts
+  - - link
+    - rel: canonical
+      href: https://aidimag.com/concepts
+---
+
 # Core concepts
 
 This page explains every moving part in plain English. If you read only one reference page,

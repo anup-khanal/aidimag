@@ -1,3 +1,21 @@
+---
+title: What is aiDimag? | Introduction to Verified Memory for AI Agents
+description: Learn how aiDimag solves the forgetfulness problem in AI coding assistants with verified, falsifiable memory that stays true as your code evolves.
+head:
+  - - meta
+    - name: keywords
+      content: aiDimag introduction, AI memory system, verified memory, falsifiable claims, AI coding assistant memory, dim CLI, codebase knowledge
+  - - meta
+    - property: og:title
+      content: What is aiDimag? Introduction to Verified Memory
+  - - meta
+    - property: og:url
+      content: https://aidimag.com/introduction
+  - - link
+    - rel: canonical
+      href: https://aidimag.com/introduction
+---
+
 # What is aiDimag?
 
 **aiDimag** is a memory system for AI coding agents. Its command-line
